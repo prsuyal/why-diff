@@ -3,9 +3,11 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/prsuyal/why-diff/internal/ingest"
 	"github.com/prsuyal/why-diff/internal/initialize"
 	"github.com/prsuyal/why-diff/internal/query"
+	"github.com/prsuyal/why-diff/internal/semantic"
 	"github.com/spf13/cobra"
 )
 
@@ -56,9 +59,89 @@ func New(environment Environment) *cobra.Command {
 	root.AddCommand(newWhyCommand(environment))
 	root.AddCommand(newDiffCommand(environment))
 	root.AddCommand(newClaimsCommand(environment))
+	root.AddCommand(newExplainCommand(environment))
 	root.AddCommand(newFinalizeCommand(environment))
 	root.AddCommand(newInternalCommand())
 	return root
+}
+
+func newExplainCommand(environment Environment) *cobra.Command {
+	var sessionSelector string
+	var model string
+	var dryRun bool
+	var timeout time.Duration
+	command := &cobra.Command{
+		Use:   "explain <file[:line]>",
+		Short: "Generate an optional model interpretation from bounded evidence",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			service, err := query.New(command.Context(), environment.WorkingDirectory)
+			if err != nil {
+				return err
+			}
+			_, packet, err := service.SemanticEvidence(command.Context(), arguments[0], sessionSelector)
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				encoded, err := json.MarshalIndent(packet, "", "  ")
+				if err != nil {
+					return fmt.Errorf("encode semantic evidence preview: %w", err)
+				}
+				fmt.Fprintln(command.OutOrStdout(), string(encoded))
+				return nil
+			}
+
+			if model == "" {
+				model = os.Getenv("WHYDIFF_OPENAI_MODEL")
+			}
+			generator, err := semantic.NewOpenAI(semantic.OpenAIConfig{
+				APIKey:  os.Getenv("OPENAI_API_KEY"),
+				Model:   model,
+				BaseURL: os.Getenv("OPENAI_BASE_URL"),
+			})
+			if err != nil {
+				return fmt.Errorf("configure semantic provider: %w; use --dry-run to inspect exactly what would be sent", err)
+			}
+			requestContext, cancel := context.WithTimeout(command.Context(), timeout)
+			defer cancel()
+			explanation, err := generator.Explain(requestContext, packet)
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintln(command.OutOrStdout(), "Model-generated interpretation (not an observed fact)")
+			fmt.Fprintf(command.OutOrStdout(), "Target:   %s\n", packet.Target)
+			fmt.Fprintf(command.OutOrStdout(), "Session:  %s\n", packet.SessionID)
+			fmt.Fprintf(command.OutOrStdout(), "Provider: %s\n", explanation.Provider)
+			fmt.Fprintf(command.OutOrStdout(), "Model:    %s\n", explanation.Model)
+			fmt.Fprintf(command.OutOrStdout(), "Response: %s\n\n", explanation.ResponseID)
+			fmt.Fprintln(command.OutOrStdout(), explanation.Summary)
+			if len(explanation.Claims) > 0 {
+				fmt.Fprintln(command.OutOrStdout(), "\nClaims:")
+				for _, claim := range explanation.Claims {
+					fmt.Fprintf(command.OutOrStdout(), "- [%s] %s\n", claim.Confidence, claim.Statement)
+					fmt.Fprintf(command.OutOrStdout(), "  Evidence: %s\n", strings.Join(claim.EvidenceIDs, ", "))
+					if claim.Qualification != "" {
+						fmt.Fprintf(command.OutOrStdout(), "  Qualification: %s\n", claim.Qualification)
+					}
+				}
+			}
+			if len(explanation.Unknowns) > 0 {
+				fmt.Fprintln(command.OutOrStdout(), "\nUnknowns:")
+				for _, unknown := range explanation.Unknowns {
+					fmt.Fprintf(command.OutOrStdout(), "- %s\n", unknown)
+				}
+			}
+			fmt.Fprintln(command.OutOrStdout(), "\nUse `whydiff why` and `whydiff claims` for the underlying deterministic evidence.")
+			return nil
+		},
+	}
+	command.Flags().StringVar(&sessionSelector, "session", "", "restrict evidence to a session id or unique prefix")
+	command.Flags().StringVar(&model, "model", "", "OpenAI model (default: WHYDIFF_OPENAI_MODEL or "+semantic.DefaultModel+")")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "print the evidence packet without making an API request")
+	command.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "maximum time for the semantic API request")
+	return command
 }
 
 func newClaimsCommand(environment Environment) *cobra.Command {

@@ -80,6 +80,12 @@ whydiff diff latest
 # Show replayable fail-change-pass claims.
 whydiff claims latest
 
+# Preview the bounded model evidence; this makes no network request.
+whydiff explain internal/auth/auth.go:42 --dry-run
+
+# Generate an explicitly labeled model interpretation.
+OPENAI_API_KEY=... whydiff explain internal/auth/auth.go:42
+
 # Find the most recent captured tool call that changed a file.
 whydiff why internal/auth/auth.go
 
@@ -103,6 +109,34 @@ failing, repository changes follow, and the same command explicitly passes,
 claim has a stable ID and cites the failed command event, intervening change
 events, passing command event, and affected files. Unstructured output text is
 not treated as a pass/fail fact.
+
+## Optional semantic enrichment
+
+`whydiff explain <file[:line]>` lazily sends a bounded evidence packet to the
+[OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create).
+The packet contains relevant redacted event summaries, the prompt, checkpoint
+patch, and deterministic validation claim—not the complete raw transcript. Use
+`--dry-run` to inspect the exact JSON before sending anything.
+
+The API response uses strict Structured Outputs. Every model-generated claim
+must cite an evidence ID that exists in the packet; WhyDiff rejects the entire
+response if the model invents a citation. Output is prominently labeled as a
+model interpretation, and the underlying events remain authoritative. WhyDiff
+sets `store: false` on the request and does not persist the semantic result yet.
+
+Configuration:
+
+```sh
+export OPENAI_API_KEY=...
+export WHYDIFF_OPENAI_MODEL=gpt-5.4-mini   # optional
+export OPENAI_BASE_URL=https://api.openai.com/v1  # optional
+
+whydiff explain path/to/file.go:42
+```
+
+The prompt and patch may contain repository code that deterministic event
+redaction did not remove. Running `explain` is therefore an explicit network and
+cost boundary; hook capture itself never calls a model.
 
 The hook-facing command is internal:
 
@@ -129,8 +163,9 @@ available for tests and diagnostics.
 
 ## Current boundaries
 
-The core currently supports one provider (Codex), file/hunk attribution,
-fail-change-pass validation claims, and private local refs. It does not yet
-include SQLite acceleration, Tree-sitter entity lineage, LLM semantic
-enrichment, human annotations, shared provenance refs, tamper-evident chaining,
-or Homebrew distribution.
+The core currently supports one capture provider (Codex), file/hunk
+attribution, fail-change-pass validation claims, private local refs, and one
+optional semantic provider (OpenAI). It does not yet include SQLite
+acceleration, Tree-sitter entity lineage, cached/persisted semantic claims,
+human annotations, shared provenance refs, tamper-evident chaining, or Homebrew
+distribution.

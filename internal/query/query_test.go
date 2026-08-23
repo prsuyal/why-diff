@@ -63,6 +63,21 @@ func TestWhyConnectsPromptToolAndCheckpointDiff(t *testing.T) {
 	if archivedAttribution.CompletedEventID != attribution.CompletedEventID {
 		t.Fatalf("archived attribution = %+v, want event %s", archivedAttribution, attribution.CompletedEventID)
 	}
+
+	_, packet, err := service.SemanticEvidence(context.Background(), "auth.go:3", "session-abc")
+	if err != nil {
+		t.Fatalf("SemanticEvidence() error = %v", err)
+	}
+	if packet.SessionID != "session-abc" || packet.Target != "auth.go:3" || len(packet.Evidence) < 4 {
+		t.Fatalf("semantic packet = %+v", packet)
+	}
+	kinds := map[string]bool{}
+	for _, item := range packet.Evidence {
+		kinds[item.Kind] = true
+	}
+	if !kinds["prompt"] || !kinds["tool_started"] || !kinds["tool_completed"] || !kinds["checkpoint_diff"] {
+		t.Fatalf("semantic evidence kinds = %+v", kinds)
+	}
 }
 
 func ingestEvent(t *testing.T, root, template string) {

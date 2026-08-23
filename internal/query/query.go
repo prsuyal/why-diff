@@ -13,15 +13,24 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/prsuyal/why-diff/internal/event"
 	"github.com/prsuyal/why-diff/internal/provenance"
 	"github.com/prsuyal/why-diff/internal/reason"
 	"github.com/prsuyal/why-diff/internal/repository"
+	"github.com/prsuyal/why-diff/internal/semantic"
 	"github.com/prsuyal/why-diff/internal/store"
 )
 
 var hunkHeader = regexp.MustCompile(`^@@ -[0-9]+(?:,[0-9]+)? \+([0-9]+)(?:,([0-9]+))? @@`)
+
+const (
+	maxSemanticEvidenceBytes = 96 * 1024
+	maxSemanticEventBytes    = 4 * 1024
+	maxSemanticPatchBytes    = 64 * 1024
+	maxSemanticTurnEvents    = 40
+)
 
 type Service struct {
 	location repository.Location
@@ -41,7 +50,9 @@ type Attribution struct {
 	SessionID        string
 	Target           string
 	Line             int
+	TurnID           string
 	Prompt           string
+	PromptEventID    string
 	Tool             string
 	ToolSummary      string
 	StartedEventID   string
@@ -167,6 +178,85 @@ func (s *Service) Why(ctx context.Context, target, sessionSelector string) (Attr
 		return Attribution{}, fmt.Errorf("no captured tool checkpoint changed %s at post-change line %d", path, line)
 	}
 	return Attribution{}, fmt.Errorf("no captured tool checkpoint changed %s", path)
+}
+
+// SemanticEvidence builds the bounded, inspectable packet that may be sent to
+// a semantic provider. It contains only captured evidence relevant to the
+// selected attribution, never the full raw session transcript.
+func (s *Service) SemanticEvidence(ctx context.Context, target, sessionSelector string) (Attribution, semantic.EvidencePacket, error) {
+	attribution, err := s.Why(ctx, target, sessionSelector)
+	if err != nil {
+		return Attribution{}, semantic.EvidencePacket{}, err
+	}
+	session, err := s.Session(ctx, attribution.SessionID)
+	if err != nil {
+		return Attribution{}, semantic.EvidencePacket{}, err
+	}
+	packet := semantic.EvidencePacket{
+		SchemaVersion: semantic.EvidenceSchemaVersion,
+		SessionID:     attribution.SessionID,
+		Target:        target,
+	}
+	seen := map[string]struct{}{}
+	total := 0
+	add := func(id, kind, summary string, maximum int) {
+		if id == "" || summary == "" {
+			return
+		}
+		if _, exists := seen[id]; exists {
+			return
+		}
+		remaining := maxSemanticEvidenceBytes - total
+		if remaining <= 0 {
+			packet.Truncated = true
+			return
+		}
+		limit := maximum
+		if limit > remaining {
+			limit = remaining
+		}
+		trimmed, truncated := truncateBytes(strings.TrimSpace(summary), limit)
+		if truncated || maximum > remaining {
+			packet.Truncated = true
+		}
+		if trimmed == "" {
+			return
+		}
+		seen[id] = struct{}{}
+		packet.Evidence = append(packet.Evidence, semantic.EvidenceItem{ID: id, Kind: kind, Summary: trimmed})
+		total += len(trimmed)
+	}
+
+	if attribution.PromptEventID != "" {
+		add(attribution.PromptEventID, "prompt", attribution.Prompt, maxSemanticEventBytes)
+	}
+	turnEvents := 0
+	for _, captured := range session.Events {
+		if attribution.TurnID != "" && captured.Context.TurnID != attribution.TurnID {
+			continue
+		}
+		if captured.Kind != event.KindPromptSubmitted && captured.Kind != event.KindToolStarted && captured.Kind != event.KindToolCompleted {
+			continue
+		}
+		if turnEvents >= maxSemanticTurnEvents {
+			packet.Truncated = true
+			break
+		}
+		add(captured.EventID, string(captured.Kind), semanticEventSummary(captured), maxSemanticEventBytes)
+		turnEvents++
+	}
+	changeID := "diff:" + attribution.StartedEventID + ":" + attribution.CompletedEventID
+	add(changeID, "checkpoint_diff", fmt.Sprintf("Before tree: %s\nAfter tree: %s\n%s", attribution.BeforeTree, attribution.AfterTree, attribution.Patch), maxSemanticPatchBytes)
+	if validation := attribution.Validation; validation != nil {
+		add(validation.ClaimID, "deterministic_claim", fmt.Sprintf(
+			"Rule %s observed `%s` fail at %s, repository changes to %s, then pass at %s. This supports but does not prove that the changes resolved the failure.",
+			validation.RuleID, validation.Command, validation.FailedEventID, strings.Join(validation.Files, ", "), validation.PassedEventID,
+		), maxSemanticEventBytes)
+	}
+	if err := semantic.ValidatePacket(packet); err != nil {
+		return Attribution{}, semantic.EvidencePacket{}, err
+	}
+	return attribution, packet, nil
 }
 
 func (s *Service) allSessions(ctx context.Context) ([]store.Session, error) {
@@ -325,11 +415,14 @@ func (s *Service) attributionsForSession(ctx context.Context, session store.Sess
 				continue
 			}
 			tool, summary := toolDescription(before)
+			promptEvent, _ := precedingPromptEvent(session.Events, before)
 			matches = append(matches, Attribution{
 				SessionID:        session.ID,
 				Target:           path,
 				Line:             line,
-				Prompt:           precedingPrompt(session.Events, before),
+				TurnID:           before.Context.TurnID,
+				Prompt:           promptText(promptEvent),
+				PromptEventID:    promptEvent.EventID,
 				Tool:             tool,
 				ToolSummary:      summary,
 				StartedEventID:   before.EventID,
@@ -443,7 +536,12 @@ func patchTouchesLine(patch string, target int) bool {
 }
 
 func precedingPrompt(events []event.Event, tool event.Event) string {
-	var sameTurn, latest string
+	prompt, _ := precedingPromptEvent(events, tool)
+	return promptText(prompt)
+}
+
+func precedingPromptEvent(events []event.Event, tool event.Event) (event.Event, bool) {
+	var sameTurn, latest event.Event
 	for _, captured := range events {
 		if captured.Sequence >= tool.Sequence {
 			break
@@ -451,19 +549,18 @@ func precedingPrompt(events []event.Event, tool event.Event) string {
 		if captured.Kind != event.KindPromptSubmitted {
 			continue
 		}
-		text := promptText(captured)
-		if text == "" {
+		if promptText(captured) == "" {
 			continue
 		}
-		latest = text
+		latest = captured
 		if tool.Context.TurnID != "" && captured.Context.TurnID == tool.Context.TurnID {
-			sameTurn = text
+			sameTurn = captured
 		}
 	}
-	if sameTurn != "" {
-		return sameTurn
+	if sameTurn.EventID != "" {
+		return sameTurn, true
 	}
-	return latest
+	return latest, latest.EventID != ""
 }
 
 func promptText(captured event.Event) string {
@@ -491,6 +588,41 @@ func toolDescription(captured event.Event) (string, string) {
 		compact = compact[:160] + "…"
 	}
 	return payload.Tool, compact
+}
+
+func semanticEventSummary(captured event.Event) string {
+	description := DescribeEvent(captured)
+	if captured.Kind != event.KindToolCompleted {
+		return description
+	}
+	var payload event.ToolCompletedPayload
+	if json.Unmarshal(captured.Payload, &payload) != nil {
+		return description
+	}
+	response := strings.TrimSpace(string(payload.Response))
+	if response == "" || response == "null" {
+		return description
+	}
+	return description + "\nStructured response: " + response
+}
+
+func truncateBytes(value string, maximum int) (string, bool) {
+	if maximum <= 0 {
+		return "", value != ""
+	}
+	if len(value) <= maximum {
+		return value, false
+	}
+	const suffix = "…[TRUNCATED]"
+	cut := maximum - len(suffix)
+	if cut < 0 {
+		cut = 0
+	}
+	value = value[:cut]
+	for !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return value + suffix, true
 }
 
 // DescribeEvent returns a compact observed-fact description for show output.

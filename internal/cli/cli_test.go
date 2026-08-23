@@ -148,6 +148,7 @@ func TestSessionsShowAndWhyCommands(t *testing.T) {
 		{args: []string{"why", "auth.go:3"}, want: []string{"Prompt:  Fix auth timeout", "Tool:    apply_patch", "return 30", "Validation:", "failed before", "passed afterward"}},
 		{args: []string{"diff"}, want: []string{"Files: auth.go", "return 30"}},
 		{args: []string{"claims"}, want: []string{"resolving a test failure", "go test ./...", "Files: auth.go", "does not prove"}},
+		{args: []string{"explain", "auth.go:3", "--dry-run"}, want: []string{`"schema_version": 1`, `"target": "auth.go:3"`, `"kind": "checkpoint_diff"`}},
 		{args: []string{"finalize", "session-cli"}, want: []string{"refs/whydiff/sessions/", "Commit:"}},
 	} {
 		var stdout, stderr bytes.Buffer
