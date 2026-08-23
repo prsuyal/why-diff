@@ -45,6 +45,7 @@ type Event struct {
 	Context       Context         `json:"context"`
 	Payload       json.RawMessage `json:"payload"`
 	SourcePayload json.RawMessage `json:"source_payload"`
+	Checkpoint    *Checkpoint     `json:"checkpoint,omitempty"`
 	Capture       Capture         `json:"capture"`
 }
 
@@ -79,6 +80,16 @@ type Redaction struct {
 type Warning struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// Checkpoint identifies Git objects representing repository state at capture
+// time. A missing index tree means the real index could not be written (for
+// example, because it contained unresolved conflicts).
+type Checkpoint struct {
+	CapturedAt   time.Time `json:"captured_at"`
+	HeadCommit   string    `json:"head_commit,omitempty"`
+	IndexTree    string    `json:"index_tree,omitempty"`
+	WorktreeTree string    `json:"worktree_tree"`
 }
 
 // New constructs an event before the store assigns its ingestion sequence.
@@ -151,6 +162,14 @@ func (e Event) validateCommon() error {
 	}
 	if !json.Valid(e.SourcePayload) {
 		return errors.New("source_payload is not valid JSON")
+	}
+	if e.Checkpoint != nil {
+		if e.Checkpoint.CapturedAt.IsZero() {
+			return errors.New("checkpoint captured_at is required")
+		}
+		if e.Checkpoint.WorktreeTree == "" {
+			return errors.New("checkpoint worktree_tree is required")
+		}
 	}
 	return nil
 }

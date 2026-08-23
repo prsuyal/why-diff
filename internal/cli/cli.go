@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/prsuyal/why-diff/internal/ingest"
 	"github.com/prsuyal/why-diff/internal/initialize"
+	"github.com/prsuyal/why-diff/internal/query"
 	"github.com/spf13/cobra"
 )
 
@@ -48,8 +51,203 @@ func New(environment Environment) *cobra.Command {
 	root.SetErr(environment.Stderr)
 
 	root.AddCommand(newInitCommand(environment))
+	root.AddCommand(newSessionsCommand(environment))
+	root.AddCommand(newShowCommand(environment))
+	root.AddCommand(newWhyCommand(environment))
+	root.AddCommand(newDiffCommand(environment))
+	root.AddCommand(newFinalizeCommand(environment))
 	root.AddCommand(newInternalCommand())
 	return root
+}
+
+func newDiffCommand(environment Environment) *cobra.Command {
+	return &cobra.Command{
+		Use:   "diff [session]",
+		Short: "Show repository changes observed around tool calls",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			selector := "latest"
+			if len(arguments) == 1 {
+				selector = arguments[0]
+			}
+			service, err := query.New(command.Context(), environment.WorkingDirectory)
+			if err != nil {
+				return err
+			}
+			session, changes, err := service.Changes(command.Context(), selector)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(command.OutOrStdout(), "Session: %s\n", session.ID)
+			if len(changes) == 0 {
+				fmt.Fprintln(command.OutOrStdout(), "No checkpointed tool calls changed repository files.")
+				return nil
+			}
+			for index, change := range changes {
+				if index > 0 {
+					fmt.Fprintln(command.OutOrStdout())
+				}
+				fmt.Fprintf(command.OutOrStdout(), "Tool: %s", change.Tool)
+				if change.ToolSummary != "" {
+					fmt.Fprintf(command.OutOrStdout(), " — %s", change.ToolSummary)
+				}
+				fmt.Fprintln(command.OutOrStdout())
+				if change.Prompt != "" {
+					fmt.Fprintf(command.OutOrStdout(), "Prompt: %s\n", change.Prompt)
+				}
+				fmt.Fprintf(command.OutOrStdout(), "Files: %s\n\n", strings.Join(change.Files, ", "))
+				fmt.Fprintln(command.OutOrStdout(), change.Patch)
+			}
+			return nil
+		},
+	}
+}
+
+func newFinalizeCommand(environment Environment) *cobra.Command {
+	return &cobra.Command{
+		Use:   "finalize [session]",
+		Short: "Archive an active session under a private Git ref",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			selector := "latest"
+			if len(arguments) == 1 {
+				selector = arguments[0]
+			}
+			service, err := query.New(command.Context(), environment.WorkingDirectory)
+			if err != nil {
+				return err
+			}
+			archive, err := service.Finalize(command.Context(), selector)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(command.OutOrStdout(), "Finalized session at %s\nCommit: %s\n", archive.Ref, archive.Commit)
+			return nil
+		},
+	}
+}
+
+func newSessionsCommand(environment Environment) *cobra.Command {
+	return &cobra.Command{
+		Use:   "sessions",
+		Short: "List captured WhyDiff sessions",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			service, err := query.New(command.Context(), environment.WorkingDirectory)
+			if err != nil {
+				return err
+			}
+			summaries, err := service.Summaries(command.Context())
+			if err != nil {
+				return err
+			}
+			if len(summaries) == 0 {
+				fmt.Fprintln(command.OutOrStdout(), "No captured WhyDiff sessions.")
+				return nil
+			}
+			writer := tabwriter.NewWriter(command.OutOrStdout(), 0, 4, 2, ' ', 0)
+			fmt.Fprintln(writer, "SESSION\tSTARTED\tEVENTS\tSTATUS\tFIRST PROMPT")
+			for _, summary := range summaries {
+				status := "active"
+				if summary.Ended {
+					status = "ended"
+				}
+				fmt.Fprintf(writer, "%s\t%s\t%d\t%s\t%s\n",
+					summary.ID,
+					summary.StartedAt.Local().Format(time.RFC3339),
+					summary.EventCount,
+					status,
+					truncate(summary.Prompt, 72),
+				)
+			}
+			return writer.Flush()
+		},
+	}
+}
+
+func newShowCommand(environment Environment) *cobra.Command {
+	return &cobra.Command{
+		Use:   "show [session]",
+		Short: "Show the observed timeline for a captured session",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			selector := "latest"
+			if len(arguments) == 1 {
+				selector = arguments[0]
+			}
+			service, err := query.New(command.Context(), environment.WorkingDirectory)
+			if err != nil {
+				return err
+			}
+			session, err := service.Session(command.Context(), selector)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(command.OutOrStdout(), "Session: %s\n", session.ID)
+			fmt.Fprintf(command.OutOrStdout(), "Events:  %d\n\n", len(session.Events))
+			for _, captured := range session.Events {
+				checkpointMark := ""
+				if captured.Checkpoint != nil {
+					checkpointMark = " [checkpoint]"
+				}
+				fmt.Fprintf(command.OutOrStdout(), "[%04d] %s  %s%s\n",
+					captured.Sequence,
+					captured.ObservedAt.Local().Format("15:04:05.000"),
+					query.DescribeEvent(captured),
+					checkpointMark,
+				)
+				for _, warning := range captured.Capture.Warnings {
+					fmt.Fprintf(command.OutOrStdout(), "       warning: %s\n", warning.Code)
+				}
+			}
+			return nil
+		},
+	}
+}
+
+func newWhyCommand(environment Environment) *cobra.Command {
+	var sessionSelector string
+	command := &cobra.Command{
+		Use:   "why <file[:line]>",
+		Short: "Explain which captured tool call changed a file or line",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			service, err := query.New(command.Context(), environment.WorkingDirectory)
+			if err != nil {
+				return err
+			}
+			attribution, err := service.Why(command.Context(), arguments[0], sessionSelector)
+			if err != nil {
+				return err
+			}
+
+			target := attribution.Target
+			if attribution.Line > 0 {
+				target = fmt.Sprintf("%s:%d", target, attribution.Line)
+			}
+			fmt.Fprintf(command.OutOrStdout(), "Target:  %s\n", target)
+			fmt.Fprintf(command.OutOrStdout(), "Session: %s\n", attribution.SessionID)
+			if attribution.Prompt != "" {
+				fmt.Fprintf(command.OutOrStdout(), "Prompt:  %s\n", attribution.Prompt)
+			}
+			fmt.Fprintf(command.OutOrStdout(), "Tool:    %s", attribution.Tool)
+			if attribution.ToolSummary != "" {
+				fmt.Fprintf(command.OutOrStdout(), " — %s", attribution.ToolSummary)
+			}
+			fmt.Fprintln(command.OutOrStdout())
+			fmt.Fprintln(command.OutOrStdout(), "\nEvidence:")
+			fmt.Fprintf(command.OutOrStdout(), "- Tool started:   %s\n", attribution.StartedEventID)
+			fmt.Fprintf(command.OutOrStdout(), "- Tool completed: %s\n", attribution.CompletedEventID)
+			fmt.Fprintf(command.OutOrStdout(), "- Before tree:    %s\n", attribution.BeforeTree)
+			fmt.Fprintf(command.OutOrStdout(), "- After tree:     %s\n", attribution.AfterTree)
+			fmt.Fprintln(command.OutOrStdout(), "\nInference: the target changed between checkpoints immediately before and after this tool call. This is strong temporal evidence, not proof of exclusive causation.")
+			fmt.Fprintln(command.OutOrStdout(), "\nPatch:")
+			fmt.Fprintln(command.OutOrStdout(), attribution.Patch)
+			return nil
+		},
+	}
+	command.Flags().StringVar(&sessionSelector, "session", "", "restrict attribution to a session id or unique prefix")
+	return command
 }
 
 func newInitCommand(environment Environment) *cobra.Command {
@@ -125,4 +323,12 @@ func newCodexIngestCommand() *cobra.Command {
 	command.Flags().StringVar(&storeRoot, "store-root", "", "override the WhyDiff data root")
 	command.Flags().DurationVar(&lockTimeout, "lock-timeout", 500*time.Millisecond, "maximum time to wait for the session log lock")
 	return command
+}
+
+func truncate(value string, maximum int) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if len(value) <= maximum {
+		return value
+	}
+	return value[:maximum-1] + "…"
 }
