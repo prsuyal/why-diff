@@ -77,6 +77,9 @@ whydiff show latest
 # Show every file mutation observed around a tool call.
 whydiff diff latest
 
+# Show replayable fail-change-pass claims.
+whydiff claims latest
+
 # Find the most recent captured tool call that changed a file.
 whydiff why internal/auth/auth.go
 
@@ -93,6 +96,13 @@ It prints the prompt, tool-call event IDs, tree IDs, and exact patch supporting
 that claim. This is strong temporal evidence, not proof that the tool call was
 the only cause. A `file:line` query uses the line number in that tool call's
 post-change snapshot; cross-edit entity lineage is not implemented yet.
+
+When the captured structured response explicitly reports a test command
+failing, repository changes follow, and the same command explicitly passes,
+`whydiff claims` derives a versioned `test_fail_change_pass/v1` claim. Each
+claim has a stable ID and cites the failed command event, intervening change
+events, passing command event, and affected files. Unstructured output text is
+not treated as a pass/fail fact.
 
 The hook-facing command is internal:
 
@@ -119,7 +129,8 @@ available for tests and diagnostics.
 
 ## Current boundaries
 
-The core currently supports one provider (Codex), file/hunk attribution, and
-private local refs. It does not yet include SQLite acceleration, Tree-sitter
-entity lineage, test-result claims, LLM semantic enrichment, human annotations,
-shared provenance refs, tamper-evident chaining, or Homebrew distribution.
+The core currently supports one provider (Codex), file/hunk attribution,
+fail-change-pass validation claims, and private local refs. It does not yet
+include SQLite acceleration, Tree-sitter entity lineage, LLM semantic
+enrichment, human annotations, shared provenance refs, tamper-evident chaining,
+or Homebrew distribution.

@@ -129,11 +129,15 @@ func TestSessionsShowAndWhyCommands(t *testing.T) {
 	runGit(t, root, "commit", "--quiet", "-m", "initial")
 
 	ingestCLIEvent(t, root, `{"session_id":"session-cli","turn_id":"turn-1","cwd":%q,"hook_event_name":"UserPromptSubmit","prompt":"Fix auth timeout"}`)
+	ingestCLIEvent(t, root, `{"session_id":"session-cli","turn_id":"turn-1","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"test-failed","tool_input":{"command":"go test ./..."}}`)
+	ingestCLIEvent(t, root, `{"session_id":"session-cli","turn_id":"turn-1","cwd":%q,"hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"test-failed","tool_input":{"command":"go test ./..."},"tool_response":{"exit_code":1,"output":"FAIL"}}`)
 	ingestCLIEvent(t, root, `{"session_id":"session-cli","turn_id":"turn-1","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_use_id":"call-1","tool_input":{"command":"change timeout"}}`)
 	if err := os.WriteFile(filepath.Join(root, "auth.go"), []byte("package auth\n\nfunc Timeout() int { return 30 }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	ingestCLIEvent(t, root, `{"session_id":"session-cli","turn_id":"turn-1","cwd":%q,"hook_event_name":"PostToolUse","tool_name":"apply_patch","tool_use_id":"call-1","tool_input":{"command":"change timeout"},"tool_response":{"output":"Done!"}}`)
+	ingestCLIEvent(t, root, `{"session_id":"session-cli","turn_id":"turn-1","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"test-passed","tool_input":{"command":"go test ./..."}}`)
+	ingestCLIEvent(t, root, `{"session_id":"session-cli","turn_id":"turn-1","cwd":%q,"hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"test-passed","tool_input":{"command":"go test ./..."},"tool_response":{"exit_code":0,"output":"ok"}}`)
 
 	for _, test := range []struct {
 		args []string
@@ -141,8 +145,9 @@ func TestSessionsShowAndWhyCommands(t *testing.T) {
 	}{
 		{args: []string{"sessions"}, want: []string{"session-cli", "Fix auth timeout"}},
 		{args: []string{"show"}, want: []string{"Session: session-cli", "tool started", "[checkpoint]"}},
-		{args: []string{"why", "auth.go:3"}, want: []string{"Prompt:  Fix auth timeout", "Tool:    apply_patch", "return 30", "not proof"}},
+		{args: []string{"why", "auth.go:3"}, want: []string{"Prompt:  Fix auth timeout", "Tool:    apply_patch", "return 30", "Validation:", "failed before", "passed afterward"}},
 		{args: []string{"diff"}, want: []string{"Files: auth.go", "return 30"}},
+		{args: []string{"claims"}, want: []string{"resolving a test failure", "go test ./...", "Files: auth.go", "does not prove"}},
 		{args: []string{"finalize", "session-cli"}, want: []string{"refs/whydiff/sessions/", "Commit:"}},
 	} {
 		var stdout, stderr bytes.Buffer

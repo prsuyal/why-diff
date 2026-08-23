@@ -16,6 +16,7 @@ import (
 
 	"github.com/prsuyal/why-diff/internal/event"
 	"github.com/prsuyal/why-diff/internal/provenance"
+	"github.com/prsuyal/why-diff/internal/reason"
 	"github.com/prsuyal/why-diff/internal/repository"
 	"github.com/prsuyal/why-diff/internal/store"
 )
@@ -48,19 +49,22 @@ type Attribution struct {
 	BeforeTree       string
 	AfterTree        string
 	Patch            string
+	Validation       *reason.ValidationClaim
 }
 
 type ToolChange struct {
-	SessionID        string
-	Prompt           string
-	Tool             string
-	ToolSummary      string
-	StartedEventID   string
-	CompletedEventID string
-	BeforeTree       string
-	AfterTree        string
-	Files            []string
-	Patch            string
+	SessionID         string
+	Prompt            string
+	Tool              string
+	ToolSummary       string
+	StartedEventID    string
+	CompletedEventID  string
+	StartedSequence   uint64
+	CompletedSequence uint64
+	BeforeTree        string
+	AfterTree         string
+	Files             []string
+	Patch             string
 }
 
 func New(ctx context.Context, cwd string) (*Service, error) {
@@ -144,7 +148,19 @@ func (s *Service) Why(ctx context.Context, target, sessionSelector string) (Attr
 			return Attribution{}, err
 		}
 		if len(matches) > 0 {
-			return matches[len(matches)-1], nil
+			attribution := matches[len(matches)-1]
+			claims, err := s.validationClaimsForSession(ctx, session)
+			if err != nil {
+				return Attribution{}, err
+			}
+			for index := len(claims) - 1; index >= 0; index-- {
+				if claimSupportsAttribution(claims[index], attribution) {
+					claim := claims[index]
+					attribution.Validation = &claim
+					break
+				}
+			}
+			return attribution, nil
 		}
 	}
 	if line > 0 {
@@ -193,6 +209,38 @@ func (s *Service) Changes(ctx context.Context, sessionSelector string) (store.Se
 	if err != nil {
 		return store.Session{}, nil, err
 	}
+	changes, err := s.changesForSession(ctx, session)
+	return session, changes, err
+}
+
+func (s *Service) Claims(ctx context.Context, sessionSelector string) (store.Session, []reason.ValidationClaim, error) {
+	session, err := s.Session(ctx, sessionSelector)
+	if err != nil {
+		return store.Session{}, nil, err
+	}
+	claims, err := s.validationClaimsForSession(ctx, session)
+	return session, claims, err
+}
+
+func (s *Service) validationClaimsForSession(ctx context.Context, session store.Session) ([]reason.ValidationClaim, error) {
+	changes, err := s.changesForSession(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	evidence := make([]reason.ChangeEvidence, 0, len(changes))
+	for _, change := range changes {
+		evidence = append(evidence, reason.ChangeEvidence{
+			StartedSequence:   change.StartedSequence,
+			CompletedSequence: change.CompletedSequence,
+			StartedEventID:    change.StartedEventID,
+			CompletedEventID:  change.CompletedEventID,
+			Files:             change.Files,
+		})
+	}
+	return reason.ValidationClaims(session.Events, evidence), nil
+}
+
+func (s *Service) changesForSession(ctx context.Context, session store.Session) ([]ToolChange, error) {
 	started := map[string]event.Event{}
 	var changes []ToolChange
 	for _, captured := range session.Events {
@@ -208,27 +256,48 @@ func (s *Service) Changes(ctx context.Context, sessionSelector string) (store.Se
 			}
 			files, patch, err := s.diffTrees(ctx, before.Checkpoint.WorktreeTree, captured.Checkpoint.WorktreeTree)
 			if err != nil {
-				return store.Session{}, nil, err
+				return nil, err
 			}
 			if len(files) == 0 {
 				continue
 			}
 			tool, summary := toolDescription(before)
 			changes = append(changes, ToolChange{
-				SessionID:        session.ID,
-				Prompt:           precedingPrompt(session.Events, before),
-				Tool:             tool,
-				ToolSummary:      summary,
-				StartedEventID:   before.EventID,
-				CompletedEventID: captured.EventID,
-				BeforeTree:       before.Checkpoint.WorktreeTree,
-				AfterTree:        captured.Checkpoint.WorktreeTree,
-				Files:            files,
-				Patch:            patch,
+				SessionID:         session.ID,
+				Prompt:            precedingPrompt(session.Events, before),
+				Tool:              tool,
+				ToolSummary:       summary,
+				StartedEventID:    before.EventID,
+				CompletedEventID:  captured.EventID,
+				StartedSequence:   before.Sequence,
+				CompletedSequence: captured.Sequence,
+				BeforeTree:        before.Checkpoint.WorktreeTree,
+				AfterTree:         captured.Checkpoint.WorktreeTree,
+				Files:             files,
+				Patch:             patch,
 			})
 		}
 	}
-	return session, changes, nil
+	return changes, nil
+}
+
+func claimSupportsAttribution(claim reason.ValidationClaim, attribution Attribution) bool {
+	fileFound := false
+	for _, file := range claim.Files {
+		if file == attribution.Target {
+			fileFound = true
+			break
+		}
+	}
+	if !fileFound {
+		return false
+	}
+	started, completed := false, false
+	for _, eventID := range claim.ChangeEventIDs {
+		started = started || eventID == attribution.StartedEventID
+		completed = completed || eventID == attribution.CompletedEventID
+	}
+	return started && completed
 }
 
 func (s *Service) attributionsForSession(ctx context.Context, session store.Session, path string, line int) ([]Attribution, error) {

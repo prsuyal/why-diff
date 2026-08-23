@@ -55,9 +55,53 @@ func New(environment Environment) *cobra.Command {
 	root.AddCommand(newShowCommand(environment))
 	root.AddCommand(newWhyCommand(environment))
 	root.AddCommand(newDiffCommand(environment))
+	root.AddCommand(newClaimsCommand(environment))
 	root.AddCommand(newFinalizeCommand(environment))
 	root.AddCommand(newInternalCommand())
 	return root
+}
+
+func newClaimsCommand(environment Environment) *cobra.Command {
+	return &cobra.Command{
+		Use:   "claims [session]",
+		Short: "Show deterministic claims derived from captured evidence",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			selector := "latest"
+			if len(arguments) == 1 {
+				selector = arguments[0]
+			}
+			service, err := query.New(command.Context(), environment.WorkingDirectory)
+			if err != nil {
+				return err
+			}
+			session, claims, err := service.Claims(command.Context(), selector)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(command.OutOrStdout(), "Session: %s\n", session.ID)
+			if len(claims) == 0 {
+				fmt.Fprintln(command.OutOrStdout(), "No deterministic fail-change-pass claims were found.")
+				return nil
+			}
+			for index, claim := range claims {
+				if index > 0 {
+					fmt.Fprintln(command.OutOrStdout())
+				}
+				fmt.Fprintf(command.OutOrStdout(), "Claim: %s\n", claim.ClaimID)
+				fmt.Fprintf(command.OutOrStdout(), "Rule: %s\n", claim.RuleID)
+				fmt.Fprintln(command.OutOrStdout(), "Conclusion: repository changes are consistent with resolving a test failure.")
+				fmt.Fprintf(command.OutOrStdout(), "Command: %s\n", claim.Command)
+				fmt.Fprintf(command.OutOrStdout(), "Files: %s\n", strings.Join(claim.Files, ", "))
+				fmt.Fprintln(command.OutOrStdout(), "Evidence:")
+				fmt.Fprintf(command.OutOrStdout(), "- Failed:  %s (%s)\n", claim.FailedEventID, claim.FailedBasis)
+				fmt.Fprintf(command.OutOrStdout(), "- Changes: %s\n", strings.Join(claim.ChangeEventIDs, ", "))
+				fmt.Fprintf(command.OutOrStdout(), "- Passed:  %s (%s)\n", claim.PassedEventID, claim.PassedBasis)
+				fmt.Fprintln(command.OutOrStdout(), "Caveat: this temporal sequence supports the claim but does not prove exclusive causation.")
+			}
+			return nil
+		},
+	}
 }
 
 func newDiffCommand(environment Environment) *cobra.Command {
@@ -241,6 +285,12 @@ func newWhyCommand(environment Environment) *cobra.Command {
 			fmt.Fprintf(command.OutOrStdout(), "- Before tree:    %s\n", attribution.BeforeTree)
 			fmt.Fprintf(command.OutOrStdout(), "- After tree:     %s\n", attribution.AfterTree)
 			fmt.Fprintln(command.OutOrStdout(), "\nInference: the target changed between checkpoints immediately before and after this tool call. This is strong temporal evidence, not proof of exclusive causation.")
+			if validation := attribution.Validation; validation != nil {
+				fmt.Fprintln(command.OutOrStdout(), "\nValidation:")
+				fmt.Fprintf(command.OutOrStdout(), "- `%s` failed before the change: %s (%s)\n", validation.Command, validation.FailedEventID, validation.FailedBasis)
+				fmt.Fprintf(command.OutOrStdout(), "- The same command passed afterward: %s (%s)\n", validation.PassedEventID, validation.PassedBasis)
+				fmt.Fprintln(command.OutOrStdout(), "- This is consistent with the captured changes resolving the failure; it is not proof that every changed line was necessary.")
+			}
 			fmt.Fprintln(command.OutOrStdout(), "\nPatch:")
 			fmt.Fprintln(command.OutOrStdout(), attribution.Patch)
 			return nil
