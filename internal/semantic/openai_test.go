@@ -52,7 +52,8 @@ func TestOpenAIUsesStructuredStatelessRequestAndValidatesCitations(t *testing.T)
 	}
 	packet := semantic.EvidencePacket{
 		SchemaVersion: semantic.EvidenceSchemaVersion,
-		SessionID:     "session-1",
+		Operation:     semantic.OperationExplainChange,
+		SessionIDs:    []string{"session-1"},
 		Target:        "auth.go:3",
 		Evidence: []semantic.EvidenceItem{
 			{ID: "event-1", Kind: "prompt", Summary: "Fix the timeout"},
@@ -106,7 +107,8 @@ func TestOpenAIRejectsInventedEvidenceCitation(t *testing.T) {
 	}
 	_, err = client.Explain(context.Background(), semantic.EvidencePacket{
 		SchemaVersion: semantic.EvidenceSchemaVersion,
-		SessionID:     "session-1",
+		Operation:     semantic.OperationExplainChange,
+		SessionIDs:    []string{"session-1"},
 		Target:        "auth.go",
 		Evidence:      []semantic.EvidenceItem{{ID: "real", Kind: "prompt", Summary: "Fix it"}},
 	})

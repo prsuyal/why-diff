@@ -1,0 +1,126 @@
+{
+  "description": "WhyDiff provenance capture hooks.",
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "command": "whydiff internal ingest codex",
+            "timeout": 2,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "command": "whydiff internal ingest codex",
+            "timeout": 2,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "whydiff internal ingest codex",
+            "timeout": 2,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "whydiff internal ingest codex",
+            "timeout": 2,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "whydiff internal ingest codex",
+            "timeout": 2,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "whydiff internal ingest codex",
+            "timeout": 2,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "whydiff internal ingest codex",
+            "timeout": 2,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "whydiff internal ingest codex",
+            "timeout": 2,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "command": "whydiff internal ingest codex",
+            "timeout": 2,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "command": "whydiff internal ingest codex",
+            "timeout": 2,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "whydiff internal ingest codex",
+            "timeout": 2,
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

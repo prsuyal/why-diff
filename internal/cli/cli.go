@@ -60,9 +60,111 @@ func New(environment Environment) *cobra.Command {
 	root.AddCommand(newDiffCommand(environment))
 	root.AddCommand(newClaimsCommand(environment))
 	root.AddCommand(newExplainCommand(environment))
+	root.AddCommand(newCompareCommand(environment))
 	root.AddCommand(newFinalizeCommand(environment))
 	root.AddCommand(newInternalCommand())
 	return root
+}
+
+func newCompareCommand(environment Environment) *cobra.Command {
+	var showPatches bool
+	var semanticInterpretation bool
+	var dryRun bool
+	var model string
+	var timeout time.Duration
+	command := &cobra.Command{
+		Use:   "compare <session-a> <session-b>",
+		Short: "Compare two captured attempts using observed evidence",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			service, err := query.New(command.Context(), environment.WorkingDirectory)
+			if err != nil {
+				return err
+			}
+			var comparison query.Comparison
+			var packet semantic.EvidencePacket
+			if semanticInterpretation || dryRun {
+				comparison, packet, err = service.ComparisonSemanticEvidence(command.Context(), arguments[0], arguments[1])
+			} else {
+				comparison, err = service.Compare(command.Context(), arguments[0], arguments[1])
+			}
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				return printSemanticPacket(command.OutOrStdout(), packet)
+			}
+
+			fmt.Fprintln(command.OutOrStdout(), "Evidence-backed session comparison (observations, not semantic conclusions)")
+			printComparisonAttempt(command.OutOrStdout(), "A", comparison.Left, showPatches)
+			printComparisonAttempt(command.OutOrStdout(), "B", comparison.Right, showPatches)
+			fmt.Fprintln(command.OutOrStdout(), "\nChanged files:")
+			printComparisonList(command.OutOrStdout(), "Shared", comparison.SharedFiles)
+			printComparisonList(command.OutOrStdout(), "Only A", comparison.LeftOnlyFiles)
+			printComparisonList(command.OutOrStdout(), "Only B", comparison.RightOnlyFiles)
+			fmt.Fprintln(command.OutOrStdout(), "\nValidation commands:")
+			printComparisonList(command.OutOrStdout(), "Shared", comparison.SharedValidations)
+			printComparisonList(command.OutOrStdout(), "Only A", comparison.LeftOnlyValidations)
+			printComparisonList(command.OutOrStdout(), "Only B", comparison.RightOnlyValidations)
+			fmt.Fprintln(command.OutOrStdout(), "\nInference boundary: overlap and divergence are observed; WhyDiff has not inferred why the attempts differ.")
+			if semanticInterpretation {
+				generator, err := newSemanticGenerator(model)
+				if err != nil {
+					return err
+				}
+				requestContext, cancel := context.WithTimeout(command.Context(), timeout)
+				defer cancel()
+				explanation, err := generator.Explain(requestContext, packet)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintln(command.OutOrStdout())
+				printSemanticExplanation(command.OutOrStdout(), packet, explanation)
+			}
+			return nil
+		},
+	}
+	command.Flags().BoolVar(&showPatches, "patch", false, "include each attempt's checkpoint patches")
+	command.Flags().BoolVar(&semanticInterpretation, "explain", false, "generate a model interpretation of the bounded comparison evidence")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "print the comparison evidence packet without making an API request")
+	command.Flags().StringVar(&model, "model", "", "OpenAI model (default: WHYDIFF_OPENAI_MODEL or "+semantic.DefaultModel+")")
+	command.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "maximum time for the semantic API request")
+	return command
+}
+
+func printComparisonAttempt(writer io.Writer, label string, attempt query.ComparisonAttempt, showPatches bool) {
+	fmt.Fprintf(writer, "\nAttempt %s\n", label)
+	fmt.Fprintf(writer, "Session: %s\n", attempt.SessionID)
+	if len(attempt.Prompts) == 0 {
+		fmt.Fprintln(writer, "Prompts: (none captured)")
+	} else {
+		fmt.Fprintln(writer, "Prompts:")
+		for _, prompt := range attempt.Prompts {
+			fmt.Fprintf(writer, "- %s [%s]\n", prompt.Text, prompt.EventID)
+		}
+	}
+	fmt.Fprintf(writer, "Checkpointed changes: %d\n", len(attempt.Changes))
+	if len(attempt.Validations) == 0 {
+		fmt.Fprintln(writer, "Observed validations: (none)")
+	} else {
+		fmt.Fprintln(writer, "Observed validations:")
+		for _, validation := range attempt.Validations {
+			fmt.Fprintf(writer, "- %s: %s [%s]\n", validation.Outcome, validation.Command, validation.EventID)
+		}
+	}
+	if showPatches {
+		for _, change := range attempt.Changes {
+			fmt.Fprintf(writer, "\nPatch [%s -> %s]:\n%s\n", change.StartedEventID, change.CompletedEventID, change.Patch)
+		}
+	}
+}
+
+func printComparisonList(writer io.Writer, label string, values []string) {
+	if len(values) == 0 {
+		fmt.Fprintf(writer, "- %s: (none)\n", label)
+		return
+	}
+	fmt.Fprintf(writer, "- %s: %s\n", label, strings.Join(values, ", "))
 }
 
 func newExplainCommand(environment Environment) *cobra.Command {
@@ -84,24 +186,12 @@ func newExplainCommand(environment Environment) *cobra.Command {
 				return err
 			}
 			if dryRun {
-				encoded, err := json.MarshalIndent(packet, "", "  ")
-				if err != nil {
-					return fmt.Errorf("encode semantic evidence preview: %w", err)
-				}
-				fmt.Fprintln(command.OutOrStdout(), string(encoded))
-				return nil
+				return printSemanticPacket(command.OutOrStdout(), packet)
 			}
 
-			if model == "" {
-				model = os.Getenv("WHYDIFF_OPENAI_MODEL")
-			}
-			generator, err := semantic.NewOpenAI(semantic.OpenAIConfig{
-				APIKey:  os.Getenv("OPENAI_API_KEY"),
-				Model:   model,
-				BaseURL: os.Getenv("OPENAI_BASE_URL"),
-			})
+			generator, err := newSemanticGenerator(model)
 			if err != nil {
-				return fmt.Errorf("configure semantic provider: %w; use --dry-run to inspect exactly what would be sent", err)
+				return err
 			}
 			requestContext, cancel := context.WithTimeout(command.Context(), timeout)
 			defer cancel()
@@ -110,29 +200,7 @@ func newExplainCommand(environment Environment) *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintln(command.OutOrStdout(), "Model-generated interpretation (not an observed fact)")
-			fmt.Fprintf(command.OutOrStdout(), "Target:   %s\n", packet.Target)
-			fmt.Fprintf(command.OutOrStdout(), "Session:  %s\n", packet.SessionID)
-			fmt.Fprintf(command.OutOrStdout(), "Provider: %s\n", explanation.Provider)
-			fmt.Fprintf(command.OutOrStdout(), "Model:    %s\n", explanation.Model)
-			fmt.Fprintf(command.OutOrStdout(), "Response: %s\n\n", explanation.ResponseID)
-			fmt.Fprintln(command.OutOrStdout(), explanation.Summary)
-			if len(explanation.Claims) > 0 {
-				fmt.Fprintln(command.OutOrStdout(), "\nClaims:")
-				for _, claim := range explanation.Claims {
-					fmt.Fprintf(command.OutOrStdout(), "- [%s] %s\n", claim.Confidence, claim.Statement)
-					fmt.Fprintf(command.OutOrStdout(), "  Evidence: %s\n", strings.Join(claim.EvidenceIDs, ", "))
-					if claim.Qualification != "" {
-						fmt.Fprintf(command.OutOrStdout(), "  Qualification: %s\n", claim.Qualification)
-					}
-				}
-			}
-			if len(explanation.Unknowns) > 0 {
-				fmt.Fprintln(command.OutOrStdout(), "\nUnknowns:")
-				for _, unknown := range explanation.Unknowns {
-					fmt.Fprintf(command.OutOrStdout(), "- %s\n", unknown)
-				}
-			}
+			printSemanticExplanation(command.OutOrStdout(), packet, explanation)
 			fmt.Fprintln(command.OutOrStdout(), "\nUse `whydiff why` and `whydiff claims` for the underlying deterministic evidence.")
 			return nil
 		},
@@ -142,6 +210,56 @@ func newExplainCommand(environment Environment) *cobra.Command {
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "print the evidence packet without making an API request")
 	command.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "maximum time for the semantic API request")
 	return command
+}
+
+func printSemanticPacket(writer io.Writer, packet semantic.EvidencePacket) error {
+	encoded, err := json.MarshalIndent(packet, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode semantic evidence preview: %w", err)
+	}
+	fmt.Fprintln(writer, string(encoded))
+	return nil
+}
+
+func newSemanticGenerator(model string) (*semantic.OpenAI, error) {
+	if model == "" {
+		model = os.Getenv("WHYDIFF_OPENAI_MODEL")
+	}
+	generator, err := semantic.NewOpenAI(semantic.OpenAIConfig{
+		APIKey:  os.Getenv("OPENAI_API_KEY"),
+		Model:   model,
+		BaseURL: os.Getenv("OPENAI_BASE_URL"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configure semantic provider: %w; use --dry-run to inspect exactly what would be sent", err)
+	}
+	return generator, nil
+}
+
+func printSemanticExplanation(writer io.Writer, packet semantic.EvidencePacket, explanation semantic.Explanation) {
+	fmt.Fprintln(writer, "Model-generated interpretation (not an observed fact)")
+	fmt.Fprintf(writer, "Target:   %s\n", packet.Target)
+	fmt.Fprintf(writer, "Sessions: %s\n", strings.Join(packet.SessionIDs, ", "))
+	fmt.Fprintf(writer, "Provider: %s\n", explanation.Provider)
+	fmt.Fprintf(writer, "Model:    %s\n", explanation.Model)
+	fmt.Fprintf(writer, "Response: %s\n\n", explanation.ResponseID)
+	fmt.Fprintln(writer, explanation.Summary)
+	if len(explanation.Claims) > 0 {
+		fmt.Fprintln(writer, "\nClaims:")
+		for _, claim := range explanation.Claims {
+			fmt.Fprintf(writer, "- [%s] %s\n", claim.Confidence, claim.Statement)
+			fmt.Fprintf(writer, "  Evidence: %s\n", strings.Join(claim.EvidenceIDs, ", "))
+			if claim.Qualification != "" {
+				fmt.Fprintf(writer, "  Qualification: %s\n", claim.Qualification)
+			}
+		}
+	}
+	if len(explanation.Unknowns) > 0 {
+		fmt.Fprintln(writer, "\nUnknowns:")
+		for _, unknown := range explanation.Unknowns {
+			fmt.Fprintf(writer, "- %s\n", unknown)
+		}
+	}
 }
 
 func newClaimsCommand(environment Environment) *cobra.Command {

@@ -148,8 +148,47 @@ func TestSessionsShowAndWhyCommands(t *testing.T) {
 		{args: []string{"why", "auth.go:3"}, want: []string{"Prompt:  Fix auth timeout", "Tool:    apply_patch", "return 30", "Validation:", "failed before", "passed afterward"}},
 		{args: []string{"diff"}, want: []string{"Files: auth.go", "return 30"}},
 		{args: []string{"claims"}, want: []string{"resolving a test failure", "go test ./...", "Files: auth.go", "does not prove"}},
-		{args: []string{"explain", "auth.go:3", "--dry-run"}, want: []string{`"schema_version": 1`, `"target": "auth.go:3"`, `"kind": "checkpoint_diff"`}},
+		{args: []string{"explain", "auth.go:3", "--dry-run"}, want: []string{`"schema_version": 2`, `"operation": "explain_change"`, `"target": "auth.go:3"`, `"kind": "checkpoint_diff"`}},
 		{args: []string{"finalize", "session-cli"}, want: []string{"refs/whydiff/sessions/", "Commit:"}},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := cli.Run(context.Background(), test.args, cli.Environment{
+			Stdin:            strings.NewReader(""),
+			Stdout:           &stdout,
+			Stderr:           &stderr,
+			WorkingDirectory: root,
+		})
+		if code != 0 {
+			t.Fatalf("Run(%v) = %d, stderr = %s", test.args, code, stderr.String())
+		}
+		for _, want := range test.want {
+			if !strings.Contains(stdout.String(), want) {
+				t.Errorf("Run(%v) output missing %q:\n%s", test.args, want, stdout.String())
+			}
+		}
+	}
+
+	ingestCLIEvent(t, root, `{"session_id":"session-alt","turn_id":"turn-2","cwd":%q,"hook_event_name":"UserPromptSubmit","prompt":"Try a separate cache"}`)
+	ingestCLIEvent(t, root, `{"session_id":"session-alt","turn_id":"turn-2","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_use_id":"call-alt","tool_input":{"command":"add cache"}}`)
+	if err := os.WriteFile(filepath.Join(root, "cache.go"), []byte("package auth\n\nvar cache = map[string]string{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ingestCLIEvent(t, root, `{"session_id":"session-alt","turn_id":"turn-2","cwd":%q,"hook_event_name":"PostToolUse","tool_name":"apply_patch","tool_use_id":"call-alt","tool_input":{"command":"add cache"},"tool_response":{"output":"Done!"}}`)
+	ingestCLIEvent(t, root, `{"session_id":"session-alt","turn_id":"turn-2","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"test-alt","tool_input":{"command":"go test ./..."}}`)
+	ingestCLIEvent(t, root, `{"session_id":"session-alt","turn_id":"turn-2","cwd":%q,"hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"test-alt","tool_input":{"command":"go test ./..."},"tool_response":{"exit_code":0,"output":"ok"}}`)
+
+	for _, test := range []struct {
+		args []string
+		want []string
+	}{
+		{
+			args: []string{"compare", "session-cli", "session-alt"},
+			want: []string{"Attempt A", "Attempt B", "Only A: auth.go", "Only B: cache.go", "Shared: go test ./...", "not semantic conclusions"},
+		},
+		{
+			args: []string{"compare", "session-cli", "session-alt", "--dry-run"},
+			want: []string{`"operation": "compare_sessions"`, `"session-cli"`, `"session-alt"`, `"kind": "deterministic_comparison"`},
+		},
 	} {
 		var stdout, stderr bytes.Buffer
 		code := cli.Run(context.Background(), test.args, cli.Environment{

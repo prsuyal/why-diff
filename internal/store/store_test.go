@@ -19,7 +19,7 @@ import (
 func TestAppendSerializesConcurrentWriters(t *testing.T) {
 	t.Parallel()
 
-	const writers = 24
+	const writers = 128
 	root := t.TempDir()
 	s := store.New(root)
 	sequences := make(chan uint64, writers)
@@ -31,7 +31,7 @@ func TestAppendSerializesConcurrentWriters(t *testing.T) {
 		go func(offset int) {
 			defer wait.Done()
 			e := newEvent(t, "shared-session", time.Now().Add(time.Duration(offset)*time.Nanosecond))
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			stored, err := s.Append(ctx, e)
 			if err != nil {

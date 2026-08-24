@@ -9,6 +9,16 @@ and deliberately distinguishes observations from causal claims. A prompt, a
 failed test, an edit, and a passing test are observations; “that edit fixed the
 test” is an inference that must cite those observations.
 
+## Install
+
+WhyDiff is currently in development. Build and run the CLI from this
+repository:
+
+```sh
+go build -o ./whydiff ./cmd/whydiff
+./whydiff --help
+```
+
 ## How it works
 
 ```text
@@ -49,8 +59,19 @@ go vet ./...
 go build -o ./whydiff ./cmd/whydiff
 ```
 
+Run the reproducible hook-boundary benchmarks:
+
+```sh
+go test ./internal/ingest -run '^$' -bench '^BenchmarkCodex' -benchmem -count=5
+```
+
+On an Apple M4 Pro with Go 1.27 (three two-second samples), prompt capture
+measured 10.0–11.1 ms p50 and 11.7–19.7 ms p95. Checkpointed tool capture
+measured 49.0–51.0 ms p50 and 54.9–56.1 ms p95. These local filesystem
+results are a baseline, not a cross-machine SLA.
+
 For local development, put the binary somewhere on `PATH` before enabling the
-generated hooks. Homebrew packaging is planned after the CLI surface settles.
+generated hooks.
 
 ## Use
 
@@ -86,6 +107,13 @@ whydiff explain internal/auth/auth.go:42 --dry-run
 # Generate an explicitly labeled model interpretation.
 OPENAI_API_KEY=... whydiff explain internal/auth/auth.go:42
 
+# Compare two captured attempts using deterministic evidence.
+whydiff compare 01K... 01J...
+
+# Preview or semantically interpret the bounded comparison evidence.
+whydiff compare 01K... 01J... --dry-run
+OPENAI_API_KEY=... whydiff compare 01K... 01J... --explain
+
 # Find the most recent captured tool call that changed a file.
 whydiff why internal/auth/auth.go
 
@@ -102,6 +130,13 @@ It prints the prompt, tool-call event IDs, tree IDs, and exact patch supporting
 that claim. This is strong temporal evidence, not proof that the tool call was
 the only cause. A `file:line` query uses the line number in that tool call's
 post-change snapshot; cross-edit entity lineage is not implemented yet.
+
+`whydiff compare` contrasts two captured sessions without assigning intent. It
+shows their cited prompts, checkpointed change counts, validation outcomes,
+and shared versus attempt-specific files and test commands. `--patch` includes
+the exact checkpoint diffs. Optional `--explain` sends a bounded packet through
+the same citation-validated semantic layer used by `whydiff explain`; the
+offline comparison remains authoritative.
 
 When the captured structured response explicitly reports a test command
 failing, repository changes follow, and the same command explicitly passes,
@@ -167,5 +202,4 @@ The core currently supports one capture provider (Codex), file/hunk
 attribution, fail-change-pass validation claims, private local refs, and one
 optional semantic provider (OpenAI). It does not yet include SQLite
 acceleration, Tree-sitter entity lineage, cached/persisted semantic claims,
-human annotations, shared provenance refs, tamper-evident chaining, or Homebrew
-distribution.
+human annotations, shared provenance refs, or tamper-evident chaining.

@@ -9,11 +9,19 @@ import (
 	"strings"
 )
 
-const EvidenceSchemaVersion = 1
+const EvidenceSchemaVersion = 2
+
+type Operation string
+
+const (
+	OperationExplainChange   Operation = "explain_change"
+	OperationCompareSessions Operation = "compare_sessions"
+)
 
 type EvidencePacket struct {
 	SchemaVersion int            `json:"schema_version"`
-	SessionID     string         `json:"session_id"`
+	Operation     Operation      `json:"operation"`
+	SessionIDs    []string       `json:"session_ids"`
 	Target        string         `json:"target"`
 	Truncated     bool           `json:"truncated"`
 	Evidence      []EvidenceItem `json:"evidence"`
@@ -49,8 +57,29 @@ func ValidatePacket(packet EvidencePacket) error {
 	if packet.SchemaVersion != EvidenceSchemaVersion {
 		return fmt.Errorf("unsupported semantic evidence schema %d", packet.SchemaVersion)
 	}
-	if packet.SessionID == "" || packet.Target == "" {
-		return errors.New("semantic evidence requires a session and target")
+	switch packet.Operation {
+	case OperationExplainChange, OperationCompareSessions:
+	default:
+		return fmt.Errorf("unsupported semantic operation %q", packet.Operation)
+	}
+	if len(packet.SessionIDs) == 0 || packet.Target == "" {
+		return errors.New("semantic evidence requires sessions and a target")
+	}
+	sessions := make(map[string]struct{}, len(packet.SessionIDs))
+	for _, sessionID := range packet.SessionIDs {
+		if strings.TrimSpace(sessionID) == "" {
+			return errors.New("semantic evidence contains an empty session id")
+		}
+		if _, exists := sessions[sessionID]; exists {
+			return fmt.Errorf("duplicate semantic session id %q", sessionID)
+		}
+		sessions[sessionID] = struct{}{}
+	}
+	if packet.Operation == OperationExplainChange && len(packet.SessionIDs) != 1 {
+		return errors.New("change explanation requires exactly one session")
+	}
+	if packet.Operation == OperationCompareSessions && len(packet.SessionIDs) != 2 {
+		return errors.New("session comparison requires exactly two sessions")
 	}
 	if len(packet.Evidence) == 0 {
 		return errors.New("semantic evidence is empty")
