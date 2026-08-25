@@ -285,10 +285,13 @@ func TestSessionsShowAndWhyCommands(t *testing.T) {
 	}{
 		{args: []string{"sessions"}, want: []string{"session-cli", "WARNINGS", "Fix auth timeout"}},
 		{args: []string{"show"}, want: []string{"Session: session-cli", "tool started", "[checkpoint]", "warning: missing_tool_name —"}},
-		{args: []string{"why", "auth.go:3"}, want: []string{"Prompt:  Fix auth timeout", "Tool:    apply_patch", "return 30", "Validation:", "failed before", "passed afterward"}},
+		{args: []string{"why", "auth.go:3"}, want: []string{"Prompt:  Fix auth timeout", "Tool:    apply_patch", "return 30", "Code entity:", "function Timeout", "Validation:", "failed before", "passed afterward"}},
+		{args: []string{"lineage", "auth.go:3"}, want: []string{"Entity: function Timeout", "Versions: 2", "modified", "qualified_name", "Confidence describes"}},
 		{args: []string{"diff"}, want: []string{"Files: auth.go", "return 30"}},
 		{args: []string{"claims"}, want: []string{"resolving a test failure", "go test ./...", "Files: auth.go", "does not prove"}},
 		{args: []string{"explain", "auth.go:3", "--dry-run"}, want: []string{`"schema_version": 2`, `"operation": "explain_change"`, `"target": "auth.go:3"`, `"kind": "checkpoint_diff"`}},
+		{args: []string{"index", "status"}, want: []string{"Sessions: 1", "Events: 8", "Changes: 1", "Entities: 2", "Lineage edges: 1"}},
+		{args: []string{"index", "rebuild"}, want: []string{"Rebuilt WhyDiff's disposable SQLite index", "Sessions: 1", "Entities: 2"}},
 		{args: []string{"finalize", "session-cli"}, want: []string{"refs/whydiff/sessions/", "Commit:"}},
 	} {
 		var stdout, stderr bytes.Buffer

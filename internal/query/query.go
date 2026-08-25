@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/prsuyal/why-diff/internal/entity"
 	"github.com/prsuyal/why-diff/internal/event"
 	"github.com/prsuyal/why-diff/internal/provenance"
 	"github.com/prsuyal/why-diff/internal/reason"
@@ -63,6 +64,8 @@ type Attribution struct {
 	AfterTree        string
 	Patch            string
 	Validation       *reason.ValidationClaim
+	Entity           *entity.Entity
+	Lineage          []entity.Edge
 }
 
 type ToolChange struct {
@@ -78,6 +81,12 @@ type ToolChange struct {
 	AfterTree         string
 	Files             []string
 	Patch             string
+}
+
+type EntityHistory struct {
+	Current  entity.Entity
+	Versions []entity.Entity
+	Edges    []entity.Edge
 }
 
 type PromptEvidence struct {
@@ -158,39 +167,33 @@ func (s *Service) Sessions(ctx context.Context) ([]store.Session, error) {
 }
 
 func (s *Service) Summaries(ctx context.Context) ([]SessionSummary, error) {
-	sessions, err := s.allSessions(ctx)
+	index, err := s.openIndex(ctx, false)
 	if err != nil {
 		return nil, err
 	}
-	summaries := make([]SessionSummary, 0, len(sessions))
-	for _, session := range sessions {
-		summary := SessionSummary{ID: session.ID, EventCount: len(session.Events)}
-		if len(session.Events) > 0 {
-			summary.StartedAt = session.Events[0].ObservedAt
-			summary.LastEventAt = session.Events[len(session.Events)-1].ObservedAt
-		}
-		for _, captured := range session.Events {
-			summary.WarningCount += len(captured.Capture.Warnings)
-			switch captured.Kind {
-			case event.KindPromptSubmitted:
-				if summary.Prompt == "" {
-					summary.Prompt = promptText(captured)
-				}
-			case event.KindSessionEnded:
-				summary.Ended = true
-			}
-		}
-		summaries = append(summaries, summary)
+	defer index.Close()
+	indexed, err := index.Summaries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	summaries := make([]SessionSummary, 0, len(indexed))
+	for _, summary := range indexed {
+		summaries = append(summaries, SessionSummary{
+			ID: summary.ID, StartedAt: summary.StartedAt, LastEventAt: summary.LastEventAt,
+			EventCount: summary.EventCount, WarningCount: summary.WarningCount,
+			Ended: summary.Ended, Prompt: summary.Prompt,
+		})
 	}
 	return summaries, nil
 }
 
 func (s *Service) Session(ctx context.Context, selector string) (store.Session, error) {
-	sessions, err := s.allSessions(ctx)
+	index, err := s.openIndex(ctx, false)
 	if err != nil {
 		return store.Session{}, err
 	}
-	return resolveSession(sessions, selector)
+	defer index.Close()
+	return index.Session(ctx, selector)
 }
 
 func (s *Service) Finalize(ctx context.Context, selector string) (provenance.Archive, error) {
@@ -206,43 +209,111 @@ func (s *Service) Why(ctx context.Context, target, sessionSelector string) (Attr
 	if err != nil {
 		return Attribution{}, err
 	}
-	sessions, err := s.allSessions(ctx)
+	index, err := s.openIndex(ctx, false)
 	if err != nil {
 		return Attribution{}, err
 	}
-	if sessionSelector != "" {
-		selected, err := resolveSession(sessions, sessionSelector)
-		if err != nil {
-			return Attribution{}, err
-		}
-		sessions = []store.Session{selected}
+	defer index.Close()
+	candidates, err := index.CandidateChanges(ctx, path, sessionSelector)
+	if err != nil {
+		return Attribution{}, err
 	}
-
-	for _, session := range sessions {
-		matches, err := s.attributionsForSession(ctx, session, path, line)
-		if err != nil {
-			return Attribution{}, err
+	for start := 0; start < len(candidates); {
+		end := start + 1
+		for end < len(candidates) && candidates[end].SessionID == candidates[start].SessionID {
+			end++
+		}
+		var matches []Attribution
+		for _, change := range candidates[start:end] {
+			patch := change.Patch
+			if patch == "" || (line > 0 && !patchTouchesLine(patch, line)) {
+				continue
+			}
+			matches = append(matches, Attribution{
+				SessionID: change.SessionID, Target: path, Line: line, Prompt: change.Prompt,
+				Tool: change.Tool, ToolSummary: change.ToolSummary,
+				StartedEventID: change.StartedEventID, CompletedEventID: change.CompletedEventID,
+				BeforeTree: change.BeforeTree, AfterTree: change.AfterTree, Patch: patch,
+			})
 		}
 		if len(matches) > 0 {
 			attribution := matches[len(matches)-1]
-			claims, err := s.validationClaimsForSession(ctx, session)
+			session, err := index.Session(ctx, attribution.SessionID)
 			if err != nil {
 				return Attribution{}, err
 			}
-			for index := len(claims) - 1; index >= 0; index-- {
-				if claimSupportsAttribution(claims[index], attribution) {
-					claim := claims[index]
+			started := eventByID(session.Events, attribution.StartedEventID)
+			attribution.TurnID = started.Context.TurnID
+			promptEvent, _ := precedingPromptEvent(session.Events, started)
+			attribution.PromptEventID = promptEvent.EventID
+			indexedChanges, err := index.Changes(ctx, session.ID)
+			if err != nil {
+				return Attribution{}, err
+			}
+			sessionChanges := make([]ToolChange, 0, len(indexedChanges))
+			for _, change := range indexedChanges {
+				sessionChanges = append(sessionChanges, fromIndexedChange(change))
+			}
+			claims := validationClaims(session, sessionChanges)
+			for claimIndex := len(claims) - 1; claimIndex >= 0; claimIndex-- {
+				if claimSupportsAttribution(claims[claimIndex], attribution) {
+					claim := claims[claimIndex]
 					attribution.Validation = &claim
 					break
 				}
 			}
+			if line > 0 {
+				if value, found, err := index.EntityAt(ctx, attribution.AfterTree, path, line); err != nil {
+					return Attribution{}, err
+				} else if found {
+					attribution.Entity = &value
+					if history, historyErr := index.History(ctx, value.VersionID); historyErr == nil {
+						for _, edge := range history.Edges {
+							attribution.Lineage = append(attribution.Lineage, edge.Edge)
+						}
+					}
+				}
+			}
 			return attribution, nil
 		}
+		start = end
 	}
 	if line > 0 {
 		return Attribution{}, fmt.Errorf("no captured tool checkpoint changed %s at post-change line %d", path, line)
 	}
 	return Attribution{}, fmt.Errorf("no captured tool checkpoint changed %s", path)
+}
+
+// Lineage returns syntax-aware entity history rooted at a captured file line.
+func (s *Service) Lineage(ctx context.Context, target, sessionSelector string) (EntityHistory, error) {
+	_, line, err := parseTarget(target)
+	if err != nil {
+		return EntityHistory{}, err
+	}
+	if line == 0 {
+		return EntityHistory{}, errors.New("entity lineage requires a target line, for example auth.go:42")
+	}
+	attribution, err := s.Why(ctx, target, sessionSelector)
+	if err != nil {
+		return EntityHistory{}, err
+	}
+	if attribution.Entity == nil {
+		return EntityHistory{}, fmt.Errorf("no supported syntax entity contains %s", target)
+	}
+	index, err := s.openIndex(ctx, false)
+	if err != nil {
+		return EntityHistory{}, err
+	}
+	defer index.Close()
+	history, err := index.History(ctx, attribution.Entity.VersionID)
+	if err != nil {
+		return EntityHistory{}, err
+	}
+	result := EntityHistory{Current: history.Current, Versions: history.Nodes}
+	for _, edge := range history.Edges {
+		result.Edges = append(result.Edges, edge.Edge)
+	}
+	return result, nil
 }
 
 // SemanticEvidence builds the bounded, inspectable packet that may be sent to
@@ -333,12 +404,24 @@ func (s *Service) allSessions(ctx context.Context) ([]store.Session, error) {
 }
 
 func (s *Service) Changes(ctx context.Context, sessionSelector string) (store.Session, []ToolChange, error) {
-	session, err := s.Session(ctx, sessionSelector)
+	index, err := s.openIndex(ctx, false)
 	if err != nil {
 		return store.Session{}, nil, err
 	}
-	changes, err := s.changesForSession(ctx, session)
-	return session, changes, err
+	defer index.Close()
+	session, err := index.Session(ctx, sessionSelector)
+	if err != nil {
+		return store.Session{}, nil, err
+	}
+	indexed, err := index.Changes(ctx, session.ID)
+	if err != nil {
+		return store.Session{}, nil, err
+	}
+	changes := make([]ToolChange, 0, len(indexed))
+	for _, change := range indexed {
+		changes = append(changes, fromIndexedChange(change))
+	}
+	return session, changes, nil
 }
 
 func (s *Service) Claims(ctx context.Context, sessionSelector string) (store.Session, []reason.ValidationClaim, error) {
@@ -452,7 +535,7 @@ func comparisonValue(values []string) string {
 }
 
 func (s *Service) comparisonAttempt(ctx context.Context, session store.Session) (ComparisonAttempt, error) {
-	changes, err := s.changesForSession(ctx, session)
+	_, changes, err := s.Changes(ctx, session.ID)
 	if err != nil {
 		return ComparisonAttempt{}, err
 	}
@@ -520,10 +603,14 @@ func partitionStrings(left, right []string) (shared, leftOnly, rightOnly []strin
 }
 
 func (s *Service) validationClaimsForSession(ctx context.Context, session store.Session) ([]reason.ValidationClaim, error) {
-	changes, err := s.changesForSession(ctx, session)
+	_, changes, err := s.Changes(ctx, session.ID)
 	if err != nil {
 		return nil, err
 	}
+	return validationClaims(session, changes), nil
+}
+
+func validationClaims(session store.Session, changes []ToolChange) []reason.ValidationClaim {
 	evidence := make([]reason.ChangeEvidence, 0, len(changes))
 	for _, change := range changes {
 		evidence = append(evidence, reason.ChangeEvidence{
@@ -534,10 +621,10 @@ func (s *Service) validationClaimsForSession(ctx context.Context, session store.
 			Files:             change.Files,
 		})
 	}
-	return reason.ValidationClaims(session.Events, evidence), nil
+	return reason.ValidationClaims(session.Events, evidence)
 }
 
-func (s *Service) changesForSession(ctx context.Context, session store.Session) ([]ToolChange, error) {
+func (s *Service) deriveChangesForSession(ctx context.Context, session store.Session) ([]ToolChange, error) {
 	started := map[string]event.Event{}
 	var changes []ToolChange
 	for _, captured := range session.Events {
@@ -655,7 +742,7 @@ func (s *Service) diffPath(ctx context.Context, before, after, path string) (str
 
 func (s *Service) diffTrees(ctx context.Context, before, after string) ([]string, string, error) {
 	nameCommand := exec.CommandContext(ctx, "git", "-C", s.location.WorktreeRoot,
-		"diff", "--no-ext-diff", "--name-only", "-z", before, after)
+		"diff", "--no-ext-diff", "--no-renames", "--name-only", "-z", before, after)
 	nameOutput, err := nameCommand.CombinedOutput()
 	if err != nil {
 		return nil, "", fmt.Errorf("list checkpoint changes: %w: %s", err, strings.TrimSpace(string(nameOutput)))
@@ -745,6 +832,15 @@ func patchTouchesLine(patch string, target int) bool {
 func precedingPrompt(events []event.Event, tool event.Event) string {
 	prompt, _ := precedingPromptEvent(events, tool)
 	return promptText(prompt)
+}
+
+func eventByID(events []event.Event, eventID string) event.Event {
+	for _, captured := range events {
+		if captured.EventID == eventID {
+			return captured
+		}
+	}
+	return event.Event{}
 }
 
 func precedingPromptEvent(events []event.Event, tool event.Event) (event.Event, bool) {

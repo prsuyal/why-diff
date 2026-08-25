@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/prsuyal/why-diff/internal/indexdb"
 	"github.com/prsuyal/why-diff/internal/initialize"
 	"github.com/prsuyal/why-diff/internal/provenance"
 	"github.com/prsuyal/why-diff/internal/repository"
@@ -172,6 +173,29 @@ func Run(ctx context.Context, cwd string, options Options) Report {
 			warningDetail = fmt.Sprintf("%d warning(s); inspect affected sessions with `whydiff show`", warningCount)
 		}
 		report.Checks = append(report.Checks, Check{Name: "Capture quality", Status: warningStatus, Detail: warningDetail})
+	}
+
+	indexPath := indexdb.Path(dataRoot)
+	index, indexErr := indexdb.Open(indexPath)
+	if indexErr == nil {
+		stats, statsErr := index.Stats(ctx)
+		_ = index.Close()
+		if statsErr == nil {
+			report.Checks = append(report.Checks, Check{
+				Name: "SQLite index", Status: StatusOK,
+				Detail: fmt.Sprintf("%d events, %d changes, %d entities, %d lineage edges", stats.Events, stats.Changes, stats.Entities, stats.Edges),
+			})
+		} else {
+			report.Checks = append(report.Checks, Check{
+				Name: "SQLite index", Status: StatusWarning,
+				Detail: "unreadable projection; the next query will rebuild it from canonical provenance",
+			})
+		}
+	} else {
+		report.Checks = append(report.Checks, Check{
+			Name: "SQLite index", Status: StatusWarning,
+			Detail: "not built yet; the first query will build it from canonical provenance",
+		})
 	}
 
 	quarantines, globErr := filepath.Glob(filepath.Join(dataRoot, "active", "*", "corrupt-tail-*.bin"))

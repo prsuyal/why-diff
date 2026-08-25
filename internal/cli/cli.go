@@ -65,6 +65,8 @@ func New(environment Environment) *cobra.Command {
 	root.AddCommand(newSessionsCommand(environment))
 	root.AddCommand(newShowCommand(environment))
 	root.AddCommand(newWhyCommand(environment))
+	root.AddCommand(newLineageCommand(environment))
+	root.AddCommand(newIndexCommand(environment))
 	root.AddCommand(newDiffCommand(environment))
 	root.AddCommand(newClaimsCommand(environment))
 	root.AddCommand(newExplainCommand(environment))
@@ -539,6 +541,15 @@ func newWhyCommand(environment Environment) *cobra.Command {
 			fmt.Fprintf(command.OutOrStdout(), "- Before tree:    %s\n", attribution.BeforeTree)
 			fmt.Fprintf(command.OutOrStdout(), "- After tree:     %s\n", attribution.AfterTree)
 			fmt.Fprintln(command.OutOrStdout(), "\nInference: the target changed between checkpoints immediately before and after this tool call. This is strong temporal evidence, not proof of exclusive causation.")
+			if attribution.Entity != nil {
+				fmt.Fprintln(command.OutOrStdout(), "\nCode entity:")
+				fmt.Fprintf(command.OutOrStdout(), "- %s %s (%s:%d-%d)\n", attribution.Entity.Kind,
+					attribution.Entity.QualifiedName, attribution.Entity.Path,
+					attribution.Entity.StartLine, attribution.Entity.EndLine)
+				if len(attribution.Lineage) > 0 {
+					fmt.Fprintf(command.OutOrStdout(), "- %d lineage edge(s); run `whydiff lineage %s` for evidence.\n", len(attribution.Lineage), target)
+				}
+			}
 			if validation := attribution.Validation; validation != nil {
 				fmt.Fprintln(command.OutOrStdout(), "\nValidation:")
 				fmt.Fprintf(command.OutOrStdout(), "- `%s` failed before the change: %s (%s)\n", validation.Command, validation.FailedEventID, validation.FailedBasis)
@@ -552,6 +563,92 @@ func newWhyCommand(environment Environment) *cobra.Command {
 	}
 	command.Flags().StringVar(&sessionSelector, "session", "", "restrict attribution to a session id or unique prefix")
 	return command
+}
+
+func newLineageCommand(environment Environment) *cobra.Command {
+	var sessionSelector string
+	command := &cobra.Command{
+		Use:   "lineage <file:line>",
+		Short: "Trace a function, method, class, or type across captured changes",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			service, err := query.New(command.Context(), environment.WorkingDirectory)
+			if err != nil {
+				return err
+			}
+			history, err := service.Lineage(command.Context(), arguments[0], sessionSelector)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(command.OutOrStdout(), "Entity: %s %s\n", history.Current.Kind, history.Current.QualifiedName)
+			fmt.Fprintf(command.OutOrStdout(), "Current version: %s:%d-%d (%s)\n", history.Current.Path,
+				history.Current.StartLine, history.Current.EndLine, shortID(history.Current.TreeID))
+			fmt.Fprintf(command.OutOrStdout(), "Versions: %d\n", len(history.Versions))
+			if len(history.Edges) == 0 {
+				fmt.Fprintln(command.OutOrStdout(), "No earlier or later version was confidently linked.")
+				return nil
+			}
+			fmt.Fprintln(command.OutOrStdout(), "\nLineage evidence:")
+			for _, edge := range history.Edges {
+				fmt.Fprintf(command.OutOrStdout(), "- %s (%.0f%%, %s)\n", edge.Relation, edge.Confidence*100, edge.Method)
+				fmt.Fprintf(command.OutOrStdout(), "  %s\n", edge.Evidence)
+			}
+			fmt.Fprintln(command.OutOrStdout(), "\nConfidence describes the entity-matching rule, not proof of developer intent.")
+			return nil
+		},
+	}
+	command.Flags().StringVar(&sessionSelector, "session", "", "restrict lineage to the attribution found in a session id or unique prefix")
+	return command
+}
+
+func newIndexCommand(environment Environment) *cobra.Command {
+	indexCommand := &cobra.Command{
+		Use:   "index",
+		Short: "Inspect or rebuild the disposable SQLite query index",
+	}
+	status := &cobra.Command{
+		Use:   "status",
+		Short: "Show indexed provenance and entity counts",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return printIndexStats(command, environment, false)
+		},
+	}
+	rebuild := &cobra.Command{
+		Use:   "rebuild",
+		Short: "Rebuild SQLite entirely from canonical Git and JSONL provenance",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return printIndexStats(command, environment, true)
+		},
+	}
+	indexCommand.AddCommand(status, rebuild)
+	return indexCommand
+}
+
+func printIndexStats(command *cobra.Command, environment Environment, force bool) error {
+	service, err := query.New(command.Context(), environment.WorkingDirectory)
+	if err != nil {
+		return err
+	}
+	stats, err := service.Index(command.Context(), force)
+	if err != nil {
+		return err
+	}
+	if force {
+		fmt.Fprintln(command.OutOrStdout(), "Rebuilt WhyDiff's disposable SQLite index from canonical provenance.")
+	}
+	fmt.Fprintf(command.OutOrStdout(), "Path: %s\n", stats.Path)
+	fmt.Fprintf(command.OutOrStdout(), "Sessions: %d\nEvents: %d\nChanges: %d\nChanged files: %d\nEntities: %d\nLineage edges: %d\n",
+		stats.Sessions, stats.Events, stats.Changes, stats.Files, stats.Entities, stats.Edges)
+	return nil
+}
+
+func shortID(value string) string {
+	if len(value) <= 12 {
+		return value
+	}
+	return value[:12]
 }
 
 func newInitCommand(environment Environment) *cobra.Command {

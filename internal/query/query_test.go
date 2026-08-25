@@ -44,6 +44,9 @@ func TestWhyConnectsPromptToolAndCheckpointDiff(t *testing.T) {
 	if attribution.Tool != "apply_patch" || !strings.Contains(attribution.Patch, "return 30") {
 		t.Fatalf("attribution = %+v", attribution)
 	}
+	if attribution.Entity == nil || attribution.Entity.QualifiedName != "Timeout" {
+		t.Fatalf("attributed entity = %+v", attribution.Entity)
+	}
 
 	summaries, err := service.Summaries(context.Background())
 	if err != nil || len(summaries) != 1 || summaries[0].EventCount != 3 {
@@ -77,6 +80,72 @@ func TestWhyConnectsPromptToolAndCheckpointDiff(t *testing.T) {
 	}
 	if !kinds["prompt"] || !kinds["tool_started"] || !kinds["tool_completed"] || !kinds["checkpoint_diff"] {
 		t.Fatalf("semantic evidence kinds = %+v", kinds)
+	}
+}
+
+func TestLineageTracksRenameAndMoveAcrossCheckpoints(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	git(t, root, "init", "--quiet")
+	git(t, root, "config", "user.name", "WhyDiff Test")
+	git(t, root, "config", "user.email", "test@example.com")
+	if err := os.MkdirAll(filepath.Join(root, "legacy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "legacy", "auth.go"), "package auth\n\nfunc Timeout() int { return 30 }\n")
+	git(t, root, "add", "legacy/auth.go")
+	git(t, root, "commit", "--quiet", "-m", "initial")
+
+	ingestEvent(t, root, `{"session_id":"lineage-session","turn_id":"turn-1","cwd":%q,"hook_event_name":"UserPromptSubmit","prompt":"Rename and reorganize timeout handling"}`)
+	ingestEvent(t, root, `{"session_id":"lineage-session","turn_id":"turn-1","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_use_id":"rename","tool_input":{"command":"rename function"}}`)
+	writeFile(t, filepath.Join(root, "legacy", "auth.go"), "package auth\n\nfunc SessionTimeout() int { return 30 }\n")
+	ingestEvent(t, root, `{"session_id":"lineage-session","turn_id":"turn-1","cwd":%q,"hook_event_name":"PostToolUse","tool_name":"apply_patch","tool_use_id":"rename","tool_input":{"command":"rename function"},"tool_response":{"output":"Done"}}`)
+
+	ingestEvent(t, root, `{"session_id":"lineage-session","turn_id":"turn-1","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"move","tool_input":{"command":"mkdir -p session && mv legacy/auth.go session/auth.go"}}`)
+	if err := os.MkdirAll(filepath.Join(root, "session"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(root, "legacy", "auth.go"), filepath.Join(root, "session", "auth.go")); err != nil {
+		t.Fatal(err)
+	}
+	ingestEvent(t, root, `{"session_id":"lineage-session","turn_id":"turn-1","cwd":%q,"hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"move","tool_input":{"command":"mkdir -p session && mv legacy/auth.go session/auth.go"},"tool_response":{"exit_code":0}}`)
+
+	service, err := query.New(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := service.Lineage(context.Background(), "session/auth.go:3", "lineage-session")
+	if err != nil {
+		t.Fatalf("Lineage() error = %v", err)
+	}
+	if history.Current.QualifiedName != "SessionTimeout" || len(history.Versions) != 3 {
+		t.Fatalf("history = %+v", history)
+	}
+	relations := map[string]bool{}
+	for _, edge := range history.Edges {
+		relations[edge.Relation] = true
+	}
+	if !relations["renamed"] || !relations["moved"] {
+		t.Fatalf("lineage relations = %+v, want rename and move", history.Edges)
+	}
+
+	stats, err := service.Index(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Sessions != 1 || stats.Changes != 2 || stats.Entities < 3 || stats.Edges != 2 {
+		t.Fatalf("index stats = %+v", stats)
+	}
+	if err := os.Remove(stats.Path); err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, err := service.Index(context.Background(), false)
+	if err != nil {
+		t.Fatalf("rebuild deleted index: %v", err)
+	}
+	if rebuilt.Entities != stats.Entities || rebuilt.Edges != stats.Edges {
+		t.Fatalf("rebuilt stats = %+v, want %+v", rebuilt, stats)
 	}
 }
 

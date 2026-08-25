@@ -47,6 +47,7 @@ Requirements:
 
 - Go 1.27 or newer
 - Git
+- a C compiler for Tree-sitter (`xcode-select --install` on macOS if needed)
 
 Download the repository:
 
@@ -168,6 +169,7 @@ snapshots are marked with `[checkpoint]`.
 | `whydiff diff [session]`                          | Shows file changes observed between checkpoints around tool calls. Defaults to `latest`.                                        |
 | `whydiff why <file[:line]>`                       | Finds the captured tool call that changed a file or post-change line and prints its prompt, evidence IDs, Git trees, and patch. |
 | `whydiff why <file[:line]> --session <session>`   | Runs the same attribution query within one selected session.                                                                    |
+| `whydiff lineage <file:line>`                     | Traces a containing function, method, class, or type across captured edits, renames, and moves.                                 |
 | `whydiff claims [session]`                        | Shows deterministic fail-change-pass claims. Defaults to `latest`.                                                              |
 | `whydiff compare <session-a> <session-b>`         | Compares the prompts, changed files, and validation commands from two attempts.                                                 |
 | `whydiff compare <session-a> <session-b> --patch` | Includes the exact checkpoint patches in the comparison.                                                                        |
@@ -189,6 +191,8 @@ Both `explain` and `compare --explain` accept `--model <name>` and
 | Command                                            | What it does                                                                                                         |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `whydiff finalize [session]`                       | Manually archives an active session under a private Git ref. Session-end hooks normally do this automatically.       |
+| `whydiff index status`                             | Shows the sessions, events, changes, entities, and lineage edges in the SQLite query index.                          |
+| `whydiff index rebuild`                            | Recreates the disposable SQLite index from canonical JSONL and Git provenance.                                      |
 | `whydiff completion <bash\|fish\|powershell\|zsh>` | Generates a shell-completion script. Run the command with `--help` for the installation instructions for that shell. |
 | `whydiff <command> --help`                         | Shows the authoritative syntax and flags for any command.                                                            |
 
@@ -249,6 +253,19 @@ Use `--session` when you want to search a particular attempt:
 ```sh
 whydiff why internal/auth/session.go:42 --session 01K...
 ```
+
+### Where a function went
+
+```sh
+whydiff lineage internal/auth/session.go:42
+```
+
+WhyDiff parses the checkpointed file with Tree-sitter and finds the narrowest
+function, method, class, interface, enum, or type containing that line. It then
+walks the entity versions linked across captured mutations. Exact names and
+content produce strong matches; structural similarity can recover a rename
+that also changed the body. Every edge prints its matching method and
+confidence, and ambiguous candidates are left unlinked.
 
 ### Whether a change resolved a test failure
 
@@ -330,7 +347,15 @@ Codex or Claude Code
         │                            │
         └──────────────┬─────────────┘
                        ▼
-           timeline, diff, claims, why
+              canonical evidence
+                       │
+              rebuildable SQLite
+                │             │
+                ▼             ▼
+       indexed queries   Tree-sitter entities
+                └───────┬─────┘
+                        ▼
+          timeline, why, claims, lineage
 ```
 
 Before and after important tool events, WhyDiff asks Git to snapshot three
@@ -355,6 +380,18 @@ That is how `why` can connect a prompt and tool call to the exact patch observed
 around it, while still being honest that timing is evidence rather than proof
 of causation.
 
+The first query builds `.git/whydiff/index.sqlite`. It indexes session
+metadata, normalized events, checkpoint changes, changed paths, code entities,
+and lineage edges. Later queries use indexed paths and event IDs instead of
+rescanning every JSONL record and diffing every checkpoint pair. WhyDiff checks
+a lightweight fingerprint of the live logs and private refs before using the
+index, then rebuilds it when canonical evidence changes.
+
+The database is deliberately disposable. Deleting `index.sqlite` loses no
+evidence: `whydiff index rebuild` or the next query reconstructs it from the
+append-only logs and Git objects. This keeps the authoritative history easy to
+audit while giving interactive commands a relational query layer.
+
 ## Built to stay out of your way
 
 WhyDiff runs inside agent hooks, so capture needs to be quick. In local
@@ -376,6 +413,27 @@ Reproduce the benchmark:
 go test ./internal/ingest -run '^$' -bench '^BenchmarkCodex' \
   -benchmem -benchtime=2s -count=3
 ```
+
+SQLite also changes the cost of repeated attribution queries. In a local test
+session with 21 events and 10 checkpointed edits, the same `why` lookup takes
+**6.2–6.6 ms** with a current index, compared with **226–260 ms** after deleting
+the index and forcing a complete reconstruction from canonical evidence. That
+is a **36–42×** warm-query speedup for this controlled workload.
+
+| Attribution query          |       time/op | allocations/op |
+| -------------------------- | ------------: | -------------: |
+| Current SQLite index       |    6.2–6.6 ms |    2,904–2,907 |
+| Forced canonical rebuild   |    226–260 ms |    9,303–9,335 |
+
+Reproduce the query benchmark:
+
+```sh
+go test ./internal/query -run '^$' \
+  -bench '^BenchmarkWhySQLiteProjection$' -benchmem -benchtime=1s -count=3
+```
+
+This measures a deliberately cold rebuild against a current local projection;
+it is not a claim that every repository or query will see the same ratio.
 
 ## Privacy and control
 
@@ -458,6 +516,15 @@ session manually:
 
 ```sh
 whydiff finalize latest
+```
+
+### The SQLite index is missing or damaged
+
+The index is only a query cache. Rebuild it from the canonical event logs and
+Git objects:
+
+```sh
+whydiff index rebuild
 ```
 
 ### Capture stopped during a log write
