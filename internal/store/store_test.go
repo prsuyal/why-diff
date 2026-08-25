@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -91,7 +90,7 @@ func TestAppendSerializesConcurrentWriters(t *testing.T) {
 	}
 }
 
-func TestAppendRefusesIncompleteLogTail(t *testing.T) {
+func TestAppendRecoversIncompleteLogTailWithoutReusingReservedSequence(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -116,10 +115,39 @@ func TestAppendRefusesIncompleteLogTail(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatalf("close event log: %v", err)
 	}
+	sequencePath := filepath.Join(filepath.Dir(logPath), "sequence")
+	if err := os.WriteFile(sequencePath, []byte("2\n"), 0o600); err != nil {
+		t.Fatalf("simulate reserved sequence: %v", err)
+	}
 
-	_, err = s.Append(context.Background(), newEvent(t, "session", time.Now()))
-	if !errors.Is(err, store.ErrCorruptLogTail) {
-		t.Fatalf("second Append() error = %v, want ErrCorruptLogTail", err)
+	second, err := s.Append(context.Background(), newEvent(t, "session", time.Now()))
+	if err != nil {
+		t.Fatalf("second Append() error = %v", err)
+	}
+	if second.Sequence != 3 {
+		t.Fatalf("second sequence = %d, want 3 after reserved sequence 2", second.Sequence)
+	}
+	if len(second.Capture.Warnings) != 1 || second.Capture.Warnings[0].Code != "log_tail_recovered" {
+		t.Fatalf("second warnings = %+v, want log_tail_recovered", second.Capture.Warnings)
+	}
+	quarantines, err := filepath.Glob(filepath.Join(filepath.Dir(logPath), "corrupt-tail-*.bin"))
+	if err != nil || len(quarantines) != 1 {
+		t.Fatalf("quarantine files = %v, error = %v", quarantines, err)
+	}
+	quarantined, err := os.ReadFile(quarantines[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(quarantined) != `{"partial":` {
+		t.Fatalf("quarantined suffix = %q", quarantined)
+	}
+
+	sessions, err := s.Sessions(context.Background())
+	if err != nil {
+		t.Fatalf("Sessions() after recovery error = %v", err)
+	}
+	if len(sessions) != 1 || len(sessions[0].Events) != 2 {
+		t.Fatalf("sessions after recovery = %+v", sessions)
 	}
 }
 

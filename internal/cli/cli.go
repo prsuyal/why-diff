@@ -12,6 +12,8 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/prsuyal/why-diff/internal/doctor"
+	"github.com/prsuyal/why-diff/internal/event"
 	"github.com/prsuyal/why-diff/internal/ingest"
 	"github.com/prsuyal/why-diff/internal/initialize"
 	"github.com/prsuyal/why-diff/internal/query"
@@ -21,20 +23,24 @@ import (
 
 const maxHookInputBytes = 16 * 1024 * 1024
 
-var errStrictCapture = errors.New("strict capture failed")
+var (
+	errStrictCapture = errors.New("strict capture failed")
+	errDoctorUnready = errors.New("doctor found configuration errors")
+)
 
 type Environment struct {
 	Stdin            io.Reader
 	Stdout           io.Writer
 	Stderr           io.Writer
 	WorkingDirectory string
+	LookupExecutable func(string) (string, error)
 }
 
 func Run(ctx context.Context, args []string, environment Environment) int {
 	root := New(environment)
 	root.SetArgs(args)
 	if err := root.ExecuteContext(ctx); err != nil {
-		if !errors.Is(err, errStrictCapture) {
+		if !errors.Is(err, errStrictCapture) && !errors.Is(err, errDoctorUnready) {
 			fmt.Fprintf(environment.Stderr, "whydiff: %v\n", err)
 		}
 		return 1
@@ -54,6 +60,8 @@ func New(environment Environment) *cobra.Command {
 	root.SetErr(environment.Stderr)
 
 	root.AddCommand(newInitCommand(environment))
+	root.AddCommand(newDoctorCommand(environment))
+	root.AddCommand(newDisableCommand(environment))
 	root.AddCommand(newSessionsCommand(environment))
 	root.AddCommand(newShowCommand(environment))
 	root.AddCommand(newWhyCommand(environment))
@@ -391,16 +399,17 @@ func newSessionsCommand(environment Environment) *cobra.Command {
 				return nil
 			}
 			writer := tabwriter.NewWriter(command.OutOrStdout(), 0, 4, 2, ' ', 0)
-			fmt.Fprintln(writer, "SESSION\tSTARTED\tEVENTS\tSTATUS\tFIRST PROMPT")
+			fmt.Fprintln(writer, "SESSION\tSTARTED\tEVENTS\tWARNINGS\tSTATUS\tFIRST PROMPT")
 			for _, summary := range summaries {
 				status := "active"
 				if summary.Ended {
 					status = "ended"
 				}
-				fmt.Fprintf(writer, "%s\t%s\t%d\t%s\t%s\n",
+				fmt.Fprintf(writer, "%s\t%s\t%d\t%d\t%s\t%s\n",
 					summary.ID,
 					summary.StartedAt.Local().Format(time.RFC3339),
 					summary.EventCount,
+					summary.WarningCount,
 					status,
 					truncate(summary.Prompt, 72),
 				)
@@ -442,9 +451,53 @@ func newShowCommand(environment Environment) *cobra.Command {
 					checkpointMark,
 				)
 				for _, warning := range captured.Capture.Warnings {
-					fmt.Fprintf(command.OutOrStdout(), "       warning: %s\n", warning.Code)
+					fmt.Fprintf(command.OutOrStdout(), "       warning: %s — %s\n", warning.Code, warning.Message)
 				}
 			}
+			return nil
+		},
+	}
+}
+
+func newDoctorCommand(environment Environment) *cobra.Command {
+	return &cobra.Command{
+		Use:   "doctor",
+		Short: "Diagnose repository capture and provenance health",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			report := doctor.Run(command.Context(), environment.WorkingDirectory, doctor.Options{
+				LookupExecutable: environment.LookupExecutable,
+			})
+			fmt.Fprintln(command.OutOrStdout(), "WhyDiff doctor")
+			for _, check := range report.Checks {
+				fmt.Fprintf(command.OutOrStdout(), "[%s] %s: %s\n", check.Status, check.Name, check.Detail)
+			}
+			if !report.Ready() {
+				fmt.Fprintln(command.OutOrStdout(), "Result: not ready")
+				return errDoctorUnready
+			}
+			fmt.Fprintln(command.OutOrStdout(), "Result: ready")
+			return nil
+		},
+	}
+}
+
+func newDisableCommand(environment Environment) *cobra.Command {
+	return &cobra.Command{
+		Use:   "disable",
+		Short: "Remove WhyDiff capture hooks from the current repository",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			result, err := initialize.Disable(command.Context(), environment.WorkingDirectory)
+			if err != nil {
+				return err
+			}
+			if !result.HooksChanged && !result.MarkerRemoved {
+				fmt.Fprintf(command.OutOrStdout(), "WhyDiff capture is already disabled in %s\n", result.RepositoryRoot)
+				return nil
+			}
+			fmt.Fprintf(command.OutOrStdout(), "Disabled WhyDiff capture in %s\n", result.RepositoryRoot)
+			fmt.Fprintln(command.OutOrStdout(), "Captured provenance was retained under .git/whydiff and refs/whydiff/sessions/*.")
 			return nil
 		},
 	}
@@ -502,26 +555,50 @@ func newWhyCommand(environment Environment) *cobra.Command {
 }
 
 func newInitCommand(environment Environment) *cobra.Command {
-	return &cobra.Command{
+	var provider string
+	command := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize WhyDiff in the current Git repository",
+		Short: "Initialize WhyDiff capture for an AI coding agent",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			result, err := initialize.Run(command.Context(), environment.WorkingDirectory)
+			providers, err := selectedProviders(provider)
+			if err != nil {
+				return err
+			}
+			result, err := initialize.RunProviders(command.Context(), environment.WorkingDirectory, providers)
 			if err != nil {
 				return err
 			}
 			if !result.MarkerCreated && !result.HooksChanged {
 				fmt.Fprintf(command.OutOrStdout(), "WhyDiff is already initialized in %s\n", result.RepositoryRoot)
+				fmt.Fprintln(command.OutOrStdout(), "Run `whydiff doctor`, then start a fresh agent session to verify capture.")
 				return nil
 			}
 			fmt.Fprintf(command.OutOrStdout(), "Initialized WhyDiff in %s\n", result.RepositoryRoot)
-			if result.HooksChanged {
-				fmt.Fprintf(command.OutOrStdout(), "Updated %s\n", result.HooksPath)
-				fmt.Fprintln(command.OutOrStdout(), "Review and trust the project hooks with /hooks in Codex.")
+			for _, hook := range result.Hooks {
+				if hook.Changed {
+					fmt.Fprintf(command.OutOrStdout(), "Updated %s (%s)\n", hook.Path, hook.Provider)
+				}
 			}
+			fmt.Fprintln(command.OutOrStdout(), "Review and trust the generated project hooks before starting the agent.")
+			fmt.Fprintln(command.OutOrStdout(), "Run `whydiff doctor`, then start a fresh agent session to verify capture.")
 			return nil
 		},
+	}
+	command.Flags().StringVar(&provider, "provider", "codex", "agent integration: codex, claude, or all")
+	return command
+}
+
+func selectedProviders(value string) ([]initialize.Provider, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "codex":
+		return []initialize.Provider{initialize.ProviderCodex}, nil
+	case "claude", "claude-code":
+		return []initialize.Provider{initialize.ProviderClaude}, nil
+	case "all":
+		return []initialize.Provider{initialize.ProviderCodex, initialize.ProviderClaude}, nil
+	default:
+		return nil, fmt.Errorf("unsupported provider %q (want codex, claude, or all)", value)
 	}
 }
 
@@ -535,17 +612,28 @@ func newInternalCommand() *cobra.Command {
 		Hidden: true,
 	}
 	ingestCommand.AddCommand(newCodexIngestCommand())
+	ingestCommand.AddCommand(newClaudeIngestCommand())
 	internal.AddCommand(ingestCommand)
 	return internal
 }
 
 func newCodexIngestCommand() *cobra.Command {
+	return newProviderIngestCommand("codex", ingest.Codex)
+}
+
+func newClaudeIngestCommand() *cobra.Command {
+	return newProviderIngestCommand("claude", ingest.Claude)
+}
+
+type providerIngest func(context.Context, []byte, ingest.Options) (event.Event, error)
+
+func newProviderIngestCommand(name string, capture providerIngest) *cobra.Command {
 	var strict bool
 	var storeRoot string
 	var lockTimeout time.Duration
 
 	command := &cobra.Command{
-		Use:    "codex",
+		Use:    name,
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
@@ -554,7 +642,7 @@ func newCodexIngestCommand() *cobra.Command {
 				err = errors.New("hook payload exceeds 16 MiB capture limit")
 			}
 			if err == nil {
-				_, err = ingest.Codex(command.Context(), raw, ingest.CodexOptions{
+				_, err = capture(command.Context(), raw, ingest.Options{
 					StoreRoot:   storeRoot,
 					LockTimeout: lockTimeout,
 				})

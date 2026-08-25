@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/prsuyal/why-diff/internal/capture/claude"
 	"github.com/prsuyal/why-diff/internal/capture/codex"
 	"github.com/prsuyal/why-diff/internal/checkpoint"
 	"github.com/prsuyal/why-diff/internal/event"
@@ -18,19 +19,34 @@ import (
 
 const defaultLockTimeout = 500 * time.Millisecond
 
-type CodexOptions struct {
+type Options struct {
 	StoreRoot   string
 	ObservedAt  time.Time
 	LockTimeout time.Duration
 }
 
+type CodexOptions = Options
+type ClaudeOptions = Options
+
+type adapter interface {
+	Normalize([]byte, time.Time) (event.Event, error)
+}
+
 func Codex(ctx context.Context, raw []byte, options CodexOptions) (event.Event, error) {
+	return capture(ctx, raw, options, codex.Adapter{})
+}
+
+func Claude(ctx context.Context, raw []byte, options ClaudeOptions) (event.Event, error) {
+	return capture(ctx, raw, options, claude.Adapter{})
+}
+
+func capture(ctx context.Context, raw []byte, options Options, normalizer adapter) (event.Event, error) {
 	observedAt := options.ObservedAt
 	if observedAt.IsZero() {
 		observedAt = time.Now()
 	}
 
-	normalized, err := (codex.Adapter{}).Normalize(raw, observedAt)
+	normalized, err := normalizer.Normalize(raw, observedAt)
 	if err != nil {
 		return event.Event{}, fmt.Errorf("normalize hook event: %w", err)
 	}

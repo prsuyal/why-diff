@@ -44,9 +44,10 @@ func (s *Store) Sessions(ctx context.Context) ([]Session, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		session, err := readSession(ctx, filepath.Join(activeRoot, entry.Name()))
+		directory := filepath.Join(activeRoot, entry.Name())
+		session, err := readSession(ctx, directory)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read active session %s: %w", entry.Name(), err)
 		}
 		if len(session.Events) > 0 {
 			sessions = append(sessions, session)

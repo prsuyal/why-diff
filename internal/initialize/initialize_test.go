@@ -62,6 +62,114 @@ func TestRunCreatesIdempotentProjectConfiguration(t *testing.T) {
 	if string(after) != string(before) {
 		t.Fatal("idempotent initialization rewrote hooks.json")
 	}
+
+	inspection, err := initialize.Inspect(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Inspect() error = %v", err)
+	}
+	if !inspection.MarkerValid || !inspection.HooksValid {
+		t.Fatalf("inspection = %+v, want valid marker and hooks", inspection)
+	}
+}
+
+func TestRunProvidersMergesClaudeSettingsAndDisablePreservesThem(t *testing.T) {
+	t.Parallel()
+
+	root := newGitRepository(t)
+	settingsPath := filepath.Join(root, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := `{
+  "permissions": {"allow": ["Bash(go test ./...)"]},
+  "hooks": {
+    "PostToolUse": [{"matcher":"Write","hooks":[{"type":"command","command":"./existing"}]}]
+  }
+}`
+	if err := os.WriteFile(settingsPath, []byte(existing), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := initialize.RunProviders(context.Background(), root, []initialize.Provider{initialize.ProviderClaude})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.MarkerCreated || !result.HooksChanged || len(result.Hooks) != 1 || result.Hooks[0].Provider != initialize.ProviderClaude {
+		t.Fatalf("result = %+v", result)
+	}
+	var configured map[string]any
+	decodeFile(t, settingsPath, &configured)
+	if configured["permissions"] == nil {
+		t.Fatal("Claude permissions were removed")
+	}
+	hooks := configured["hooks"].(map[string]any)
+	if _, ok := hooks["PostToolUseFailure"]; !ok {
+		t.Fatal("PostToolUseFailure hook was not configured")
+	}
+	postGroups := hooks["PostToolUse"].([]any)
+	if len(postGroups) != 2 {
+		t.Fatalf("PostToolUse groups = %+v", postGroups)
+	}
+	inspection, err := initialize.Inspect(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inspection.ClaudeHooksValid || inspection.HooksValid {
+		t.Fatalf("inspection = %+v", inspection)
+	}
+
+	disabled, err := initialize.Disable(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !disabled.HooksChanged || disabled.HooksRemoved {
+		t.Fatalf("disabled = %+v", disabled)
+	}
+	var retained map[string]any
+	decodeFile(t, settingsPath, &retained)
+	if retained["permissions"] == nil {
+		t.Fatal("Disable removed Claude permissions")
+	}
+	postGroups = retained["hooks"].(map[string]any)["PostToolUse"].([]any)
+	if len(postGroups) != 1 {
+		t.Fatalf("PostToolUse after disable = %+v", postGroups)
+	}
+}
+
+func TestInspectReportsMissingConfigurationWithoutWriting(t *testing.T) {
+	t.Parallel()
+
+	root := newGitRepository(t)
+	inspection, err := initialize.Inspect(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Inspect() error = %v", err)
+	}
+	if inspection.MarkerValid || inspection.HooksValid {
+		t.Fatalf("inspection = %+v, want missing configuration", inspection)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".codex")); !os.IsNotExist(err) {
+		t.Fatalf("Inspect() modified the repository: %v", err)
+	}
+}
+
+func TestInspectAcceptsAdditionalDevelopmentConfiguration(t *testing.T) {
+	t.Parallel()
+
+	root := newGitRepository(t)
+	if _, err := initialize.Run(context.Background(), root); err != nil {
+		t.Fatal(err)
+	}
+	marker := "# WhyDiff development settings\nschema_version   =   1\nfuture_setting = true\n"
+	if err := os.WriteFile(filepath.Join(root, ".whydiff.toml"), []byte(marker), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := initialize.Inspect(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inspection.MarkerValid {
+		t.Fatalf("inspection = %+v, want supported schema with additional settings", inspection)
+	}
 }
 
 func TestRunMergesWithoutRemovingExistingHooksOrFields(t *testing.T) {
@@ -124,6 +232,56 @@ func TestRunMergesWithoutRemovingExistingHooksOrFields(t *testing.T) {
 		t.Fatalf("existing group was not preserved: %+v", firstGroup)
 	}
 	assertWhyDiffHooks(t, hooksPath)
+
+	disabled, err := initialize.Disable(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Disable() error = %v", err)
+	}
+	if !disabled.HooksChanged || disabled.HooksRemoved || !disabled.MarkerRemoved {
+		t.Fatalf("Disable() result = %+v", disabled)
+	}
+	var afterDisable map[string]any
+	decodeFile(t, hooksPath, &afterDisable)
+	if afterDisable["description"] != "developer hooks" || afterDisable["future_top_level_field"] == nil {
+		t.Fatalf("Disable() removed unrelated top-level data: %+v", afterDisable)
+	}
+	postGroups = afterDisable["hooks"].(map[string]any)["PostToolUse"].([]any)
+	if len(postGroups) != 1 {
+		t.Fatalf("PostToolUse groups after Disable() = %+v", postGroups)
+	}
+	firstGroup = postGroups[0].(map[string]any)
+	if firstGroup["matcher"] != "Bash" || firstGroup["future_group_field"] == nil {
+		t.Fatalf("Disable() did not preserve existing hook group: %+v", firstGroup)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".whydiff.toml")); !os.IsNotExist(err) {
+		t.Fatalf("project marker remains after Disable(): %v", err)
+	}
+}
+
+func TestDisableRemovesGeneratedConfigurationAndIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	root := newGitRepository(t)
+	if _, err := initialize.Run(context.Background(), root); err != nil {
+		t.Fatal(err)
+	}
+	first, err := initialize.Disable(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.HooksChanged || !first.HooksRemoved || !first.MarkerRemoved {
+		t.Fatalf("first Disable() = %+v", first)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".codex", "hooks.json")); !os.IsNotExist(err) {
+		t.Fatalf("generated hooks remain after Disable(): %v", err)
+	}
+	second, err := initialize.Disable(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.HooksChanged || second.HooksRemoved || second.MarkerRemoved {
+		t.Fatalf("second Disable() = %+v, want no changes", second)
+	}
 }
 
 func TestRunRefusesMalformedHooksWithoutChangingFiles(t *testing.T) {

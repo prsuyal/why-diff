@@ -3,6 +3,7 @@ package store
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -22,8 +23,6 @@ import (
 )
 
 const maxEventLineBytes = 32 * 1024 * 1024
-
-var ErrCorruptLogTail = errors.New("event log has an incomplete trailing record")
 
 type Store struct {
 	root string
@@ -56,8 +55,15 @@ func (s *Store) Append(ctx context.Context, unsequenced event.Event) (event.Even
 	defer func() { _ = fileLock.Unlock() }()
 
 	eventsPath := filepath.Join(sessionDir, "events.jsonl")
-	if err := ensureCompleteTail(eventsPath); err != nil {
+	quarantine, err := recoverIncompleteTail(sessionDir, eventsPath)
+	if err != nil {
 		return event.Event{}, err
+	}
+	if quarantine != "" {
+		unsequenced.AddWarning(
+			"log_tail_recovered",
+			"an incomplete event-log suffix was preserved in "+quarantine+" before capture resumed",
+		)
 	}
 
 	current, err := s.readCurrentSequence(sessionDir, eventsPath)
@@ -144,34 +150,89 @@ func scanMaxSequence(path string) (uint64, error) {
 	return maximum, nil
 }
 
-func ensureCompleteTail(path string) error {
-	file, err := os.Open(path)
+func recoverIncompleteTail(sessionDir, path string) (string, error) {
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return "", nil
 	}
 	if err != nil {
-		return fmt.Errorf("open event log tail: %w", err)
+		return "", fmt.Errorf("open event log tail: %w", err)
 	}
 	defer file.Close()
 
 	info, err := file.Stat()
 	if err != nil {
-		return fmt.Errorf("stat event log: %w", err)
+		return "", fmt.Errorf("stat event log: %w", err)
 	}
 	if info.Size() == 0 {
-		return nil
-	}
-	if _, err := file.Seek(-1, io.SeekEnd); err != nil {
-		return fmt.Errorf("seek event log tail: %w", err)
+		return "", nil
 	}
 	last := []byte{0}
-	if _, err := io.ReadFull(file, last); err != nil {
-		return fmt.Errorf("read event log tail: %w", err)
+	if _, err := file.ReadAt(last, info.Size()-1); err != nil {
+		return "", fmt.Errorf("read event log tail: %w", err)
 	}
-	if last[0] != '\n' {
-		return ErrCorruptLogTail
+	if last[0] == '\n' {
+		return "", nil
 	}
-	return nil
+
+	completeBytes, err := lastCompleteRecordOffset(file, info.Size())
+	if err != nil {
+		return "", err
+	}
+	quarantine, err := os.CreateTemp(sessionDir, "corrupt-tail-*.bin")
+	if err != nil {
+		return "", fmt.Errorf("create corrupt-tail quarantine: %w", err)
+	}
+	quarantinePath := quarantine.Name()
+	keepQuarantine := false
+	defer func() {
+		_ = quarantine.Close()
+		if !keepQuarantine {
+			_ = os.Remove(quarantinePath)
+		}
+	}()
+	if err := quarantine.Chmod(0o600); err != nil {
+		return "", fmt.Errorf("set corrupt-tail quarantine permissions: %w", err)
+	}
+	if _, err := file.Seek(completeBytes, io.SeekStart); err != nil {
+		return "", fmt.Errorf("seek incomplete event-log suffix: %w", err)
+	}
+	if _, err := io.Copy(quarantine, file); err != nil {
+		return "", fmt.Errorf("preserve incomplete event-log suffix: %w", err)
+	}
+	if err := quarantine.Sync(); err != nil {
+		return "", fmt.Errorf("sync corrupt-tail quarantine: %w", err)
+	}
+	if err := quarantine.Close(); err != nil {
+		return "", fmt.Errorf("close corrupt-tail quarantine: %w", err)
+	}
+	if err := file.Truncate(completeBytes); err != nil {
+		return "", fmt.Errorf("remove incomplete event-log suffix: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return "", fmt.Errorf("sync recovered event log: %w", err)
+	}
+	keepQuarantine = true
+	return filepath.Base(quarantinePath), nil
+}
+
+func lastCompleteRecordOffset(file *os.File, size int64) (int64, error) {
+	const blockSize = int64(64 * 1024)
+	for end := size; end > 0; {
+		start := end - blockSize
+		if start < 0 {
+			start = 0
+		}
+		buffer := make([]byte, end-start)
+		if _, err := file.ReadAt(buffer, start); err != nil {
+			return 0, fmt.Errorf("scan event log for last complete record: %w", err)
+		}
+		if index := bytes.LastIndexByte(buffer, '\n'); index >= 0 {
+			return start + int64(index) + 1, nil
+		}
+		end = start
+	}
+	return 0, nil
 }
 
 func writeSequence(path string, sequence uint64) error {

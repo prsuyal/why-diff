@@ -6,11 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/prsuyal/why-diff/internal/event"
 	"github.com/prsuyal/why-diff/internal/ingest"
+	"github.com/prsuyal/why-diff/internal/store"
 )
 
 func TestCodexAttachesCheckpointWithoutChangingRepositoryState(t *testing.T) {
@@ -68,6 +70,71 @@ func TestCodexAttachesCheckpointWithoutChangingRepositoryState(t *testing.T) {
 	}
 	if ref := git(t, root, "for-each-ref", "--format=%(refname)", "refs/whydiff/sessions"); ref == "" {
 		t.Fatal("SessionEnd did not create a private WhyDiff ref")
+	}
+}
+
+func TestCodexSerializesConcurrentCheckpointedEvents(t *testing.T) {
+	t.Parallel()
+
+	const writers = 16
+	root := t.TempDir()
+	git(t, root, "init", "--quiet")
+	git(t, root, "config", "user.name", "WhyDiff Test")
+	git(t, root, "config", "user.email", "test@example.com")
+	writeFile(t, filepath.Join(root, "app.go"), "package app\n")
+	git(t, root, "add", "app.go")
+	git(t, root, "commit", "--quiet", "-m", "initial")
+	storeRoot := filepath.Join(t.TempDir(), "store")
+	statusBefore := git(t, root, "status", "--porcelain=v1")
+	indexBefore := git(t, root, "write-tree")
+
+	var wait sync.WaitGroup
+	errorsFound := make(chan error, writers)
+	for index := 0; index < writers; index++ {
+		wait.Add(1)
+		go func(index int) {
+			defer wait.Done()
+			raw := []byte(fmt.Sprintf(`{
+  "session_id": "concurrent-session",
+  "turn_id": "turn-1",
+  "cwd": %q,
+  "hook_event_name": "PreToolUse",
+  "tool_name": "read_file",
+  "tool_use_id": "call-%d",
+  "tool_input": {"path": "app.go"}
+}`, root, index))
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_, err := ingest.Codex(ctx, raw, ingest.CodexOptions{
+				StoreRoot:   storeRoot,
+				LockTimeout: 10 * time.Second,
+			})
+			if err != nil {
+				errorsFound <- err
+			}
+		}(index)
+	}
+	wait.Wait()
+	close(errorsFound)
+	for err := range errorsFound {
+		t.Errorf("concurrent Codex() error = %v", err)
+	}
+	if t.Failed() {
+		return
+	}
+
+	sessions, err := store.New(storeRoot).Sessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 || len(sessions[0].Events) != writers {
+		t.Fatalf("captured sessions = %+v, want %d events", sessions, writers)
+	}
+	if statusAfter := git(t, root, "status", "--porcelain=v1"); statusAfter != statusBefore {
+		t.Fatalf("concurrent checkpoints changed status: before=%q after=%q", statusBefore, statusAfter)
+	}
+	if indexAfter := git(t, root, "write-tree"); indexAfter != indexBefore {
+		t.Fatalf("concurrent checkpoints changed index: before=%q after=%q", indexBefore, indexAfter)
 	}
 }
 

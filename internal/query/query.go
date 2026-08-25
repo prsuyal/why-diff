@@ -39,12 +39,13 @@ type Service struct {
 }
 
 type SessionSummary struct {
-	ID          string
-	StartedAt   time.Time
-	LastEventAt time.Time
-	EventCount  int
-	Ended       bool
-	Prompt      string
+	ID           string
+	StartedAt    time.Time
+	LastEventAt  time.Time
+	EventCount   int
+	WarningCount int
+	Ended        bool
+	Prompt       string
 }
 
 type Attribution struct {
@@ -169,6 +170,7 @@ func (s *Service) Summaries(ctx context.Context) ([]SessionSummary, error) {
 			summary.LastEventAt = session.Events[len(session.Events)-1].ObservedAt
 		}
 		for _, captured := range session.Events {
+			summary.WarningCount += len(captured.Capture.Warnings)
 			switch captured.Kind {
 			case event.KindPromptSubmitted:
 				if summary.Prompt == "" {
