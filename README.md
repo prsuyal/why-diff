@@ -40,18 +40,27 @@ story generated from the final diff after the work is already over.
 
 ## 1. Install why-diff
 
-why-diff is currently in development and has not been published to Homebrew
-yet. For now, download the source and build the CLI.
+Install with one of these methods:
 
-Quick install, Homebrew, and prebuilt downloads are being prepared for v0.1;
-see the [install guide](docs/install.md) for the release plan and commands.
+```sh
+# Quick install (macOS and Linux)
+curl -fsSL https://raw.githubusercontent.com/prsuyal/why-diff/main/scripts/install.sh | sh
 
-Requirements:
+# Homebrew (macOS and Linux)
+brew install prsuyal/tap/why-diff
+```
 
-- Go 1.27 or newer
-- Git 2.42 or newer (for NUL-delimited batch object reads)
-- Codex CLI 0.156.1 or newer for CLI capture (the version verified end to end)
-- a C compiler for Tree-sitter (`xcode-select --install` on macOS if needed)
+For Windows or a manual install, download a prebuilt archive from the
+[v0.1.0 release](https://github.com/prsuyal/why-diff/releases/tag/v0.1.0).
+The [install guide](docs/install.md) covers checksums, supported platforms,
+and PATH setup. Both `why-diff` and `why-diff-hook` must be on `PATH`.
+
+Git 2.42 or newer is required. Codex CLI 0.156.1 is the version verified end
+to end for automatic capture. Prebuilt binaries do not require Go or a C
+compiler.
+
+To build from source instead, you need Go 1.27 or newer and a C compiler
+(`xcode-select --install` on macOS if needed):
 
 Download the repository:
 

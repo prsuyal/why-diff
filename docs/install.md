@@ -2,8 +2,7 @@
 
 The three install methods below use the same release archives. Each archive
 contains both `why-diff` (the command you run) and `why-diff-hook` (the recorder
-used by agent hooks). A published release and Homebrew tap do not exist yet;
-these instructions become usable after v0.1 is published.
+used by agent hooks).
 
 Requirements after installation: Git 2.42 or newer, and Codex for automatic
 capture. Codex CLI 0.156.1 is the verified baseline for CLI capture. Prebuilt
@@ -26,7 +25,7 @@ file.
 
 ## Homebrew (macOS and Linux)
 
-Once `prsuyal/homebrew-tap` contains the formula, install with:
+Install with:
 
 ```sh
 brew install prsuyal/tap/why-diff
@@ -39,11 +38,8 @@ brew update
 brew upgrade prsuyal/tap/why-diff
 ```
 
-The tap formula is generated from the release checksums with
-`scripts/homebrew-formula.sh v0.1.0 SHA256SUMS > why-diff.rb`, then placed in
-the tap's `Formula/why-diff.rb`. It downloads one of the same verified release
-archives and installs both commands. Do not advertise this command until the
-tap exists.
+The [tap formula](https://github.com/prsuyal/homebrew-tap/blob/main/Formula/why-diff.rb)
+downloads one of the same verified release archives and installs both commands.
 
 ## Prebuilt binaries (macOS, Linux, Windows)
 
@@ -83,18 +79,3 @@ the project in Codex; review and trust the hooks with `/hooks`. For global
 setup, review and trust the user hooks. Then start a fresh session.
 After it edits code, run `why-diff sessions` and
 `why-diff why path/to/file.go:42`.
-
-## Preparing the first release
-
-1. Finish the live Codex capture check and pass CI on all supported platforms.
-2. Push the reviewed code and an existing `v0.1.0` tag. Run the manual
-   **Prepare release** workflow with that tag. It tests and builds five native
-   archives, writes `SHA256SUMS`, and creates a **draft** GitHub release.
-3. Inspect the draft archives and checksums, publish the release, then run a
-   clean install through the quick installer and direct archive route.
-4. Generate the formula from that release's `SHA256SUMS`, put it in
-   `prsuyal/homebrew-tap/Formula/why-diff.rb`, test `brew install`, and publish
-   the tap before advertising the Homebrew command.
-
-Publishing the release or tap changes external GitHub state and is a separate
-review step.
