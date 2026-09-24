@@ -28,8 +28,13 @@ jobs:
           cache: true
       - name: Test
         run: go test ./...
+      - name: Test installation and user flow
+        if: runner.os != 'Windows'
+        run: |
+          sh scripts/test-install.sh
+          sh scripts/test-user-flow.sh
       - name: Build
-        run: go build ./cmd/whydiff
+        run: go build -o dist/ ./cmd/why-diff ./cmd/why-diff-hook
 
   race-and-vet:
     name: Race detector and vet

@@ -1,4 +1,4 @@
-// Package redact removes likely secrets before WhyDiff persists an event.
+// Package redact removes likely secrets before why-diff persists an event.
 package redact
 
 import (

@@ -1,4 +1,4 @@
-// Package event defines WhyDiff's provider-neutral event vocabulary.
+// Package event defines why-diff's provider-neutral event vocabulary.
 package event
 
 import (
@@ -13,7 +13,7 @@ import (
 
 const SchemaVersion = 1
 
-// Kind identifies an observed lifecycle event. Kinds describe what WhyDiff
+// Kind identifies an observed lifecycle event. Kinds describe what why-diff
 // observed; they do not assert why a code change happened.
 type Kind string
 
@@ -32,7 +32,7 @@ const (
 	KindUnknown             Kind = "unknown"
 )
 
-// Event is the stable envelope consumed by every provider-independent WhyDiff
+// Event is the stable envelope consumed by every provider-independent why-diff
 // subsystem. Payload is typed according to Kind; SourcePayload retains the
 // redacted provider input so future adapters can reinterpret it.
 type Event struct {

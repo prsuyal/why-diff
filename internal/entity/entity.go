@@ -80,6 +80,38 @@ func Extract(path, treeID string, source []byte) ([]Entity, error) {
 	return entities, nil
 }
 
+// LanguageForPath returns the parser identity used in the blob cache.
+func LanguageForPath(path string) (string, bool) {
+	config, ok := languageForPath(path)
+	return config.name, ok
+}
+
+// Rebase reuses syntax extracted from an identical Git blob at another tree
+// or path while assigning version IDs for the new checkpoint location.
+func Rebase(values []Entity, path, treeID string) []Entity {
+	rebased := make([]Entity, 0, len(values))
+	for _, value := range values {
+		value.Path = filepath.ToSlash(path)
+		value.TreeID = treeID
+		value.VersionID = versionID(value)
+		rebased = append(rebased, value)
+	}
+	return rebased
+}
+
+// Templates removes checkpoint-specific identity before syntax is persisted in
+// the blob cache.
+func Templates(values []Entity) []Entity {
+	templates := make([]Entity, 0, len(values))
+	for _, value := range values {
+		value.VersionID = ""
+		value.TreeID = ""
+		value.Path = ""
+		templates = append(templates, value)
+	}
+	return templates
+}
+
 func languageForPath(path string) (languageConfig, bool) {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".go":
@@ -119,10 +151,7 @@ func walk(node *treesitter.Node, source []byte, language, path, treeID string, p
 				StructureHash: digest([]byte(structure)),
 				Structure:     structure,
 			}
-			entity.VersionID = digest([]byte(strings.Join([]string{
-				treeID, entity.Path, entity.Kind, entity.QualifiedName,
-				fmt.Sprint(entity.StartLine), entity.ContentHash,
-			}, "\x00")))
+			entity.VersionID = versionID(entity)
 			*entities = append(*entities, entity)
 			nextParents = append(append([]string(nil), parents...), name)
 		}
@@ -130,6 +159,13 @@ func walk(node *treesitter.Node, source []byte, language, path, treeID string, p
 	for index := uint(0); index < node.NamedChildCount(); index++ {
 		walk(node.NamedChild(index), source, language, path, treeID, nextParents, entities)
 	}
+}
+
+func versionID(value Entity) string {
+	return digest([]byte(strings.Join([]string{
+		value.TreeID, value.Path, value.Kind, value.QualifiedName,
+		fmt.Sprint(value.StartLine), value.ContentHash,
+	}, "\x00")))
 }
 
 func describeNode(node *treesitter.Node, source []byte, language string, parents []string) (kind, name string, ok bool) {

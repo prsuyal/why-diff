@@ -19,7 +19,7 @@ func TestWhyConnectsPromptToolAndCheckpointDiff(t *testing.T) {
 
 	root := t.TempDir()
 	git(t, root, "init", "--quiet")
-	git(t, root, "config", "user.name", "WhyDiff Test")
+	git(t, root, "config", "user.name", "why-diff test")
 	git(t, root, "config", "user.email", "test@example.com")
 	writeFile(t, filepath.Join(root, "auth.go"), "package auth\n\nfunc Timeout() int { return 5 }\n")
 	git(t, root, "add", "auth.go")
@@ -56,7 +56,7 @@ func TestWhyConnectsPromptToolAndCheckpointDiff(t *testing.T) {
 	if _, err := service.Finalize(context.Background(), "session-abc"); err != nil {
 		t.Fatalf("Finalize() error = %v", err)
 	}
-	if err := os.RemoveAll(filepath.Join(root, ".git", "whydiff", "active")); err != nil {
+	if err := os.RemoveAll(filepath.Join(root, ".git", "why-diff", "active")); err != nil {
 		t.Fatal(err)
 	}
 	archivedAttribution, err := service.Why(context.Background(), "auth.go:3", "session-abc")
@@ -88,7 +88,7 @@ func TestLineageTracksRenameAndMoveAcrossCheckpoints(t *testing.T) {
 
 	root := t.TempDir()
 	git(t, root, "init", "--quiet")
-	git(t, root, "config", "user.name", "WhyDiff Test")
+	git(t, root, "config", "user.name", "why-diff test")
 	git(t, root, "config", "user.email", "test@example.com")
 	if err := os.MkdirAll(filepath.Join(root, "legacy"), 0o755); err != nil {
 		t.Fatal(err)
@@ -149,12 +149,98 @@ func TestLineageTracksRenameAndMoveAcrossCheckpoints(t *testing.T) {
 	}
 }
 
+func TestIndexRefreshAppendsWithoutReplacingDatabase(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	git(t, root, "init", "--quiet")
+	git(t, root, "config", "user.name", "why-diff test")
+	git(t, root, "config", "user.email", "test@example.com")
+	writeFile(t, filepath.Join(root, "counter.go"), "package demo\n\nfunc Count() int { return 0 }\n")
+	git(t, root, "add", "counter.go")
+	git(t, root, "commit", "--quiet", "-m", "initial")
+
+	ingestEvent(t, root, `{"session_id":"incremental","turn_id":"turn-1","cwd":%q,"hook_event_name":"UserPromptSubmit","prompt":"Increment the counter"}`)
+	ingestEvent(t, root, `{"session_id":"incremental","turn_id":"turn-1","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_use_id":"edit-1","tool_input":{"command":"set one"}}`)
+	writeFile(t, filepath.Join(root, "counter.go"), "package demo\n\nfunc Count() int { return 1 }\n")
+	ingestEvent(t, root, `{"session_id":"incremental","turn_id":"turn-1","cwd":%q,"hook_event_name":"PostToolUse","tool_name":"apply_patch","tool_use_id":"edit-1","tool_input":{"command":"set one"},"tool_response":{"output":"Done"}}`)
+
+	service, err := query.New(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial, err := service.Index(context.Background(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialInfo, err := os.Stat(initial.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ingestEvent(t, root, `{"session_id":"incremental","turn_id":"turn-2","cwd":%q,"hook_event_name":"UserPromptSubmit","prompt":"Increment it again"}`)
+	afterPrompt, err := service.Index(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterPromptInfo, _ := os.Stat(initial.Path)
+	if !os.SameFile(initialInfo, afterPromptInfo) {
+		t.Fatal("incremental event refresh replaced the SQLite file")
+	}
+	if afterPrompt.Events != 4 || afterPrompt.Changes != 1 {
+		t.Fatalf("stats after prompt = %+v", afterPrompt)
+	}
+
+	ingestEvent(t, root, `{"session_id":"incremental","turn_id":"turn-2","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_use_id":"edit-2","tool_input":{"command":"set two"}}`)
+	writeFile(t, filepath.Join(root, "counter.go"), "package demo\n\nfunc Count() int { return 2 }\n")
+	ingestEvent(t, root, `{"session_id":"incremental","turn_id":"turn-2","cwd":%q,"hook_event_name":"PostToolUse","tool_name":"apply_patch","tool_use_id":"edit-2","tool_input":{"command":"set two"},"tool_response":{"output":"Done"}}`)
+	afterChange, err := service.Index(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterChangeInfo, _ := os.Stat(initial.Path)
+	if !os.SameFile(initialInfo, afterChangeInfo) {
+		t.Fatal("incremental change refresh replaced the SQLite file")
+	}
+	if afterChange.Events != 6 || afterChange.Changes != 2 || afterChange.Edges != 2 || afterChange.CachedBlobs < 3 {
+		t.Fatalf("stats after appended change = %+v", afterChange)
+	}
+	attribution, err := service.Why(context.Background(), "counter.go:3", "incremental")
+	if err != nil || !strings.Contains(attribution.Patch, "return 2") {
+		t.Fatalf("incremental attribution = %+v, error = %v", attribution, err)
+	}
+}
+
+func TestCompletedToolIDDoesNotAttributeLaterEdits(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	git(t, root, "init", "--quiet")
+	git(t, root, "config", "user.name", "why-diff test")
+	git(t, root, "config", "user.email", "test@example.com")
+	path := filepath.Join(root, "counter.go")
+	writeFile(t, path, "package demo\nfunc Count() int { return 0 }\n")
+	git(t, root, "add", "counter.go")
+	git(t, root, "commit", "--quiet", "-m", "initial")
+	ingestEvent(t, root, `{"session_id":"duplicate","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_use_id":"call-1"}`)
+	writeFile(t, path, "package demo\nfunc Count() int { return 1 }\n")
+	ingestEvent(t, root, `{"session_id":"duplicate","cwd":%q,"hook_event_name":"PostToolUse","tool_name":"apply_patch","tool_use_id":"call-1","tool_response":{}}`)
+	writeFile(t, path, "package demo\nfunc Count() int { return 2 }\n")
+	ingestEvent(t, root, `{"session_id":"duplicate","cwd":%q,"hook_event_name":"PostToolUse","tool_name":"apply_patch","tool_use_id":"call-1","tool_response":{}}`)
+	service, err := query.New(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats, err := service.Index(context.Background(), true)
+	if err != nil || stats.Changes != 1 {
+		t.Fatalf("index changes = %d, error = %v; want one paired tool call", stats.Changes, err)
+	}
+}
+
 func TestCompareReportsObservedOverlapAndDivergence(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
 	git(t, root, "init", "--quiet")
-	git(t, root, "config", "user.name", "WhyDiff Test")
+	git(t, root, "config", "user.name", "why-diff test")
 	git(t, root, "config", "user.email", "test@example.com")
 	writeFile(t, filepath.Join(root, "shared.go"), "package demo\n\nconst Strategy = \"baseline\"\n")
 	git(t, root, "add", "shared.go")

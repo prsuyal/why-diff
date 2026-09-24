@@ -45,7 +45,7 @@ func TestFinalizeCreatesPrivateReachableGitArchive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Finalize() error = %v", err)
 	}
-	if !strings.HasPrefix(archive.Ref, "refs/whydiff/sessions/") {
+	if !strings.HasPrefix(archive.Ref, "refs/why-diff/sessions/") {
 		t.Fatalf("Ref = %q", archive.Ref)
 	}
 	listing := git(t, root, "ls-tree", "-r", archive.Ref)

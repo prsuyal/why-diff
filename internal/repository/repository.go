@@ -5,12 +5,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 )
+
+var ErrNotRepository = errors.New("not a Git repository")
 
 type Location struct {
 	CommonGitDir string
@@ -46,7 +49,7 @@ func Locate(ctx context.Context, cwd string) (Location, error) {
 }
 
 func DataRoot(location Location) string {
-	return filepath.Join(location.CommonGitDir, "whydiff")
+	return filepath.Join(location.CommonGitDir, "why-diff")
 }
 
 func LocalID(kind, path string) string {
@@ -55,8 +58,13 @@ func LocalID(kind, path string) string {
 
 func gitPath(ctx context.Context, cwd, argument string) (string, error) {
 	command := exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", argument)
+	command.Env = append(os.Environ(), "LC_ALL=C")
 	output, err := command.Output()
 	if err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) && strings.Contains(string(exitError.Stderr), "not a git repository") {
+			return "", ErrNotRepository
+		}
 		return "", fmt.Errorf("locate Git repository with %s: %w", argument, err)
 	}
 	path := strings.TrimSpace(string(output))

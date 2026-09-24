@@ -20,7 +20,7 @@ func TestCodexAttachesCheckpointWithoutChangingRepositoryState(t *testing.T) {
 
 	root := t.TempDir()
 	git(t, root, "init", "--quiet")
-	git(t, root, "config", "user.name", "WhyDiff Test")
+	git(t, root, "config", "user.name", "why-diff test")
 	git(t, root, "config", "user.email", "test@example.com")
 	writeFile(t, filepath.Join(root, "app.go"), "package app\n")
 	git(t, root, "add", "app.go")
@@ -68,8 +68,8 @@ func TestCodexAttachesCheckpointWithoutChangingRepositoryState(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Codex(SessionEnd) error = %v", err)
 	}
-	if ref := git(t, root, "for-each-ref", "--format=%(refname)", "refs/whydiff/sessions"); ref == "" {
-		t.Fatal("SessionEnd did not create a private WhyDiff ref")
+	if ref := git(t, root, "for-each-ref", "--format=%(refname)", "refs/why-diff/sessions"); ref == "" {
+		t.Fatal("SessionEnd did not create a private why-diff ref")
 	}
 }
 
@@ -79,7 +79,7 @@ func TestCodexSerializesConcurrentCheckpointedEvents(t *testing.T) {
 	const writers = 16
 	root := t.TempDir()
 	git(t, root, "init", "--quiet")
-	git(t, root, "config", "user.name", "WhyDiff Test")
+	git(t, root, "config", "user.name", "why-diff test")
 	git(t, root, "config", "user.email", "test@example.com")
 	writeFile(t, filepath.Join(root, "app.go"), "package app\n")
 	git(t, root, "add", "app.go")

@@ -16,7 +16,7 @@ func TestCapturePreservesDirtyGitState(t *testing.T) {
 
 	root := t.TempDir()
 	git(t, root, "init", "--quiet")
-	git(t, root, "config", "user.name", "WhyDiff Test")
+	git(t, root, "config", "user.name", "why-diff test")
 	git(t, root, "config", "user.email", "test@example.com")
 	writeFile(t, filepath.Join(root, "tracked.txt"), "committed\n")
 	git(t, root, "add", "tracked.txt")

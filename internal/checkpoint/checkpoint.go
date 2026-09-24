@@ -91,7 +91,7 @@ func captureWorktreeTree(ctx context.Context, location repository.Location) (str
 }
 
 func temporaryIndex(commonGitDir string) (string, func(), error) {
-	directory := filepath.Join(commonGitDir, "whydiff", "tmp")
+	directory := filepath.Join(commonGitDir, "why-diff", "tmp")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return "", nil, fmt.Errorf("create checkpoint temporary directory: %w", err)
 	}

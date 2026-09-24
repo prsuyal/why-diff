@@ -1,0 +1,104 @@
+name: Prepare release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag (for example, v0.1.0)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  unix:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: darwin_arm64
+          - runner: macos-15-intel
+            target: darwin_amd64
+          - runner: ubuntu-22.04
+            target: linux_amd64
+          - runner: ubuntu-22.04-arm
+            target: linux_arm64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test ./...
+      - run: sh scripts/test-install.sh
+      - run: sh scripts/test-user-flow.sh
+      - name: Build and package
+        shell: bash
+        run: |
+          mkdir package
+          go build -trimpath -ldflags='-s -w' -o package/why-diff ./cmd/why-diff
+          go build -trimpath -ldflags='-s -w' -o package/why-diff-hook ./cmd/why-diff-hook
+          tar -czf why-diff_${{ matrix.target }}.tar.gz -C package why-diff why-diff-hook
+      - uses: actions/upload-artifact@v4
+        with:
+          name: why-diff_${{ matrix.target }}
+          path: why-diff_${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Build windows_amd64
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test ./...
+      - name: Build and package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory package | Out-Null
+          go build -trimpath -ldflags='-s -w' -o package/why-diff.exe ./cmd/why-diff
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -ldflags='-s -w' -o package/why-diff-hook.exe ./cmd/why-diff-hook
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Compress-Archive -Path package/why-diff.exe,package/why-diff-hook.exe -DestinationPath why-diff_windows_amd64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: why-diff_windows_amd64
+          path: why-diff_windows_amd64.zip
+          if-no-files-found: error
+
+  draft:
+    name: Create draft release
+    needs: [unix, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Check and hash assets
+        shell: bash
+        working-directory: release-assets
+        run: |
+          test "$(find . -maxdepth 1 -name 'why-diff_*' -type f | wc -l)" -eq 5
+          sha256sum why-diff_* > SHA256SUMS
+      - name: Create draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: gh release create "$RELEASE_TAG" release-assets/why-diff_* release-assets/SHA256SUMS --draft --verify-tag --generate-notes

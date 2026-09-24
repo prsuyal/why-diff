@@ -1,4 +1,4 @@
-// Package cli defines WhyDiff's command-line interface.
+// Package cli defines why-diff's command-line interface.
 package cli
 
 import (
@@ -41,7 +41,7 @@ func Run(ctx context.Context, args []string, environment Environment) int {
 	root.SetArgs(args)
 	if err := root.ExecuteContext(ctx); err != nil {
 		if !errors.Is(err, errStrictCapture) && !errors.Is(err, errDoctorUnready) {
-			fmt.Fprintf(environment.Stderr, "whydiff: %v\n", err)
+			fmt.Fprintf(environment.Stderr, "why-diff: %v\n", err)
 		}
 		return 1
 	}
@@ -50,7 +50,7 @@ func Run(ctx context.Context, args []string, environment Environment) int {
 
 func New(environment Environment) *cobra.Command {
 	root := &cobra.Command{
-		Use:           "whydiff",
+		Use:           "why-diff",
 		Short:         "Explain AI-assisted code changes from captured evidence",
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -116,7 +116,7 @@ func newCompareCommand(environment Environment) *cobra.Command {
 			printComparisonList(command.OutOrStdout(), "Shared", comparison.SharedValidations)
 			printComparisonList(command.OutOrStdout(), "Only A", comparison.LeftOnlyValidations)
 			printComparisonList(command.OutOrStdout(), "Only B", comparison.RightOnlyValidations)
-			fmt.Fprintln(command.OutOrStdout(), "\nInference boundary: overlap and divergence are observed; WhyDiff has not inferred why the attempts differ.")
+			fmt.Fprintln(command.OutOrStdout(), "\nInference boundary: overlap and divergence are observed; why-diff has not inferred why the attempts differ.")
 			if semanticInterpretation {
 				generator, err := newSemanticGenerator(model)
 				if err != nil {
@@ -137,7 +137,7 @@ func newCompareCommand(environment Environment) *cobra.Command {
 	command.Flags().BoolVar(&showPatches, "patch", false, "include each attempt's checkpoint patches")
 	command.Flags().BoolVar(&semanticInterpretation, "explain", false, "generate a model interpretation of the bounded comparison evidence")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "print the comparison evidence packet without making an API request")
-	command.Flags().StringVar(&model, "model", "", "OpenAI model (default: WHYDIFF_OPENAI_MODEL or "+semantic.DefaultModel+")")
+	command.Flags().StringVar(&model, "model", "", "OpenAI model (default: WHY_DIFF_OPENAI_MODEL or "+semantic.DefaultModel+")")
 	command.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "maximum time for the semantic API request")
 	return command
 }
@@ -211,12 +211,12 @@ func newExplainCommand(environment Environment) *cobra.Command {
 			}
 
 			printSemanticExplanation(command.OutOrStdout(), packet, explanation)
-			fmt.Fprintln(command.OutOrStdout(), "\nUse `whydiff why` and `whydiff claims` for the underlying deterministic evidence.")
+			fmt.Fprintln(command.OutOrStdout(), "\nUse `why-diff why` and `why-diff claims` for the underlying deterministic evidence.")
 			return nil
 		},
 	}
 	command.Flags().StringVar(&sessionSelector, "session", "", "restrict evidence to a session id or unique prefix")
-	command.Flags().StringVar(&model, "model", "", "OpenAI model (default: WHYDIFF_OPENAI_MODEL or "+semantic.DefaultModel+")")
+	command.Flags().StringVar(&model, "model", "", "OpenAI model (default: WHY_DIFF_OPENAI_MODEL or "+semantic.DefaultModel+")")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "print the evidence packet without making an API request")
 	command.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "maximum time for the semantic API request")
 	return command
@@ -233,7 +233,7 @@ func printSemanticPacket(writer io.Writer, packet semantic.EvidencePacket) error
 
 func newSemanticGenerator(model string) (*semantic.OpenAI, error) {
 	if model == "" {
-		model = os.Getenv("WHYDIFF_OPENAI_MODEL")
+		model = os.Getenv("WHY_DIFF_OPENAI_MODEL")
 	}
 	generator, err := semantic.NewOpenAI(semantic.OpenAIConfig{
 		APIKey:  os.Getenv("OPENAI_API_KEY"),
@@ -385,7 +385,7 @@ func newFinalizeCommand(environment Environment) *cobra.Command {
 func newSessionsCommand(environment Environment) *cobra.Command {
 	return &cobra.Command{
 		Use:   "sessions",
-		Short: "List captured WhyDiff sessions",
+		Short: "List captured why-diff sessions",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			service, err := query.New(command.Context(), environment.WorkingDirectory)
@@ -397,7 +397,7 @@ func newSessionsCommand(environment Environment) *cobra.Command {
 				return err
 			}
 			if len(summaries) == 0 {
-				fmt.Fprintln(command.OutOrStdout(), "No captured WhyDiff sessions.")
+				fmt.Fprintln(command.OutOrStdout(), "No captured why-diff sessions.")
 				return nil
 			}
 			writer := tabwriter.NewWriter(command.OutOrStdout(), 0, 4, 2, ' ', 0)
@@ -435,13 +435,13 @@ func newShowCommand(environment Environment) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			session, err := service.Session(command.Context(), selector)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(command.OutOrStdout(), "Session: %s\n", session.ID)
-			fmt.Fprintf(command.OutOrStdout(), "Events:  %d\n\n", len(session.Events))
-			for _, captured := range session.Events {
+			wroteHeader := false
+			_, _, err = service.StreamSession(command.Context(), selector, func(sessionID string, eventCount int, captured event.Event) error {
+				if !wroteHeader {
+					fmt.Fprintf(command.OutOrStdout(), "Session: %s\n", sessionID)
+					fmt.Fprintf(command.OutOrStdout(), "Events:  %d\n\n", eventCount)
+					wroteHeader = true
+				}
 				checkpointMark := ""
 				if captured.Checkpoint != nil {
 					checkpointMark = " [checkpoint]"
@@ -455,6 +455,10 @@ func newShowCommand(environment Environment) *cobra.Command {
 				for _, warning := range captured.Capture.Warnings {
 					fmt.Fprintf(command.OutOrStdout(), "       warning: %s — %s\n", warning.Code, warning.Message)
 				}
+				return nil
+			})
+			if err != nil {
+				return err
 			}
 			return nil
 		},
@@ -470,7 +474,7 @@ func newDoctorCommand(environment Environment) *cobra.Command {
 			report := doctor.Run(command.Context(), environment.WorkingDirectory, doctor.Options{
 				LookupExecutable: environment.LookupExecutable,
 			})
-			fmt.Fprintln(command.OutOrStdout(), "WhyDiff doctor")
+			fmt.Fprintln(command.OutOrStdout(), "why-diff doctor")
 			for _, check := range report.Checks {
 				fmt.Fprintf(command.OutOrStdout(), "[%s] %s: %s\n", check.Status, check.Name, check.Detail)
 			}
@@ -485,24 +489,42 @@ func newDoctorCommand(environment Environment) *cobra.Command {
 }
 
 func newDisableCommand(environment Environment) *cobra.Command {
-	return &cobra.Command{
+	var global bool
+	command := &cobra.Command{
 		Use:   "disable",
-		Short: "Remove WhyDiff capture hooks from the current repository",
+		Short: "Remove why-diff capture hooks from a repository or user settings",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			if global {
+				result, err := initialize.DisableGlobal()
+				if err != nil {
+					return err
+				}
+				if !result.HooksChanged {
+					fmt.Fprintln(command.OutOrStdout(), "why-diff global capture is already disabled")
+				} else {
+					fmt.Fprintln(command.OutOrStdout(), "Disabled why-diff global capture; repository hooks and captured provenance were retained.")
+				}
+				return nil
+			}
 			result, err := initialize.Disable(command.Context(), environment.WorkingDirectory)
 			if err != nil {
 				return err
 			}
 			if !result.HooksChanged && !result.MarkerRemoved {
-				fmt.Fprintf(command.OutOrStdout(), "WhyDiff capture is already disabled in %s\n", result.RepositoryRoot)
+				fmt.Fprintf(command.OutOrStdout(), "why-diff capture is already disabled in %s\n", result.RepositoryRoot)
 				return nil
 			}
-			fmt.Fprintf(command.OutOrStdout(), "Disabled WhyDiff capture in %s\n", result.RepositoryRoot)
-			fmt.Fprintln(command.OutOrStdout(), "Captured provenance was retained under .git/whydiff and refs/whydiff/sessions/*.")
+			fmt.Fprintf(command.OutOrStdout(), "Disabled why-diff capture in %s\n", result.RepositoryRoot)
+			if _, configured, err := initialize.GlobalHookConfigured(initialize.ProviderCodex); err == nil && configured {
+				fmt.Fprintln(command.OutOrStdout(), "Global capture is still active; run `why-diff disable --global` to turn it off.")
+			}
+			fmt.Fprintln(command.OutOrStdout(), "Captured provenance was retained under .git/why-diff and refs/why-diff/sessions/*.")
 			return nil
 		},
 	}
+	command.Flags().BoolVar(&global, "global", false, "remove user-level hooks instead of repository hooks")
+	return command
 }
 
 func newWhyCommand(environment Environment) *cobra.Command {
@@ -547,7 +569,7 @@ func newWhyCommand(environment Environment) *cobra.Command {
 					attribution.Entity.QualifiedName, attribution.Entity.Path,
 					attribution.Entity.StartLine, attribution.Entity.EndLine)
 				if len(attribution.Lineage) > 0 {
-					fmt.Fprintf(command.OutOrStdout(), "- %d lineage edge(s); run `whydiff lineage %s` for evidence.\n", len(attribution.Lineage), target)
+					fmt.Fprintf(command.OutOrStdout(), "- %d lineage edge(s); run `why-diff lineage %s` for evidence.\n", len(attribution.Lineage), target)
 				}
 			}
 			if validation := attribution.Validation; validation != nil {
@@ -636,12 +658,27 @@ func printIndexStats(command *cobra.Command, environment Environment, force bool
 		return err
 	}
 	if force {
-		fmt.Fprintln(command.OutOrStdout(), "Rebuilt WhyDiff's disposable SQLite index from canonical provenance.")
+		fmt.Fprintln(command.OutOrStdout(), "Rebuilt why-diff's disposable SQLite index from canonical provenance.")
 	}
 	fmt.Fprintf(command.OutOrStdout(), "Path: %s\n", stats.Path)
-	fmt.Fprintf(command.OutOrStdout(), "Sessions: %d\nEvents: %d\nChanges: %d\nChanged files: %d\nEntities: %d\nLineage edges: %d\n",
-		stats.Sessions, stats.Events, stats.Changes, stats.Files, stats.Entities, stats.Edges)
+	fmt.Fprintf(command.OutOrStdout(), "Size: %s\n", formatBytes(stats.SizeBytes))
+	fmt.Fprintf(command.OutOrStdout(), "Sessions: %d\nEvents: %d\nChanges: %d\nChanged files: %d\nEntities: %d\nLineage edges: %d\nCached syntax blobs: %d\n",
+		stats.Sessions, stats.Events, stats.Changes, stats.Files, stats.Entities, stats.Edges, stats.CachedBlobs)
 	return nil
+}
+
+func formatBytes(value int64) string {
+	const (
+		kib = int64(1024)
+		mib = 1024 * kib
+	)
+	if value >= mib {
+		return fmt.Sprintf("%.1f MiB", float64(value)/float64(mib))
+	}
+	if value >= kib {
+		return fmt.Sprintf("%.1f KiB", float64(value)/float64(kib))
+	}
+	return fmt.Sprintf("%d B", value)
 }
 
 func shortID(value string) string {
@@ -652,51 +689,53 @@ func shortID(value string) string {
 }
 
 func newInitCommand(environment Environment) *cobra.Command {
-	var provider string
+	var global bool
 	command := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize WhyDiff capture for an AI coding agent",
+		Short: "Initialize why-diff capture for an AI coding agent",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			providers, err := selectedProviders(provider)
-			if err != nil {
-				return err
+			providers := []initialize.Provider{initialize.ProviderCodex}
+			if global {
+				result, err := initialize.RunGlobalProviders(providers)
+				if err != nil {
+					return err
+				}
+				if !result.HooksChanged {
+					fmt.Fprintln(command.OutOrStdout(), "why-diff is already initialized globally")
+				} else {
+					fmt.Fprintln(command.OutOrStdout(), "Initialized why-diff globally for Git repositories")
+					for _, hook := range result.Hooks {
+						if hook.Changed {
+							fmt.Fprintf(command.OutOrStdout(), "Updated %s (%s)\n", hook.Path, hook.Provider)
+						}
+					}
+				}
+				fmt.Fprintln(command.OutOrStdout(), "Review and trust the user hooks, then start a fresh agent session in a Git repository.")
+				return nil
 			}
 			result, err := initialize.RunProviders(command.Context(), environment.WorkingDirectory, providers)
 			if err != nil {
 				return err
 			}
 			if !result.MarkerCreated && !result.HooksChanged {
-				fmt.Fprintf(command.OutOrStdout(), "WhyDiff is already initialized in %s\n", result.RepositoryRoot)
-				fmt.Fprintln(command.OutOrStdout(), "Run `whydiff doctor`, then start a fresh agent session to verify capture.")
+				fmt.Fprintf(command.OutOrStdout(), "why-diff is already initialized in %s\n", result.RepositoryRoot)
+				fmt.Fprintln(command.OutOrStdout(), "Run `why-diff doctor`, then start a fresh agent session to verify capture.")
 				return nil
 			}
-			fmt.Fprintf(command.OutOrStdout(), "Initialized WhyDiff in %s\n", result.RepositoryRoot)
+			fmt.Fprintf(command.OutOrStdout(), "Initialized why-diff in %s\n", result.RepositoryRoot)
 			for _, hook := range result.Hooks {
 				if hook.Changed {
 					fmt.Fprintf(command.OutOrStdout(), "Updated %s (%s)\n", hook.Path, hook.Provider)
 				}
 			}
-			fmt.Fprintln(command.OutOrStdout(), "Review and trust the generated project hooks before starting the agent.")
-			fmt.Fprintln(command.OutOrStdout(), "Run `whydiff doctor`, then start a fresh agent session to verify capture.")
+			fmt.Fprintln(command.OutOrStdout(), "Trust this project in Codex, then review and trust the generated project hooks before starting the agent.")
+			fmt.Fprintln(command.OutOrStdout(), "Run `why-diff doctor`, then start a fresh agent session to verify capture.")
 			return nil
 		},
 	}
-	command.Flags().StringVar(&provider, "provider", "codex", "agent integration: codex, claude, or all")
+	command.Flags().BoolVar(&global, "global", false, "configure user-level hooks for all Git repositories")
 	return command
-}
-
-func selectedProviders(value string) ([]initialize.Provider, error) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "codex":
-		return []initialize.Provider{initialize.ProviderCodex}, nil
-	case "claude", "claude-code":
-		return []initialize.Provider{initialize.ProviderClaude}, nil
-	case "all":
-		return []initialize.Provider{initialize.ProviderCodex, initialize.ProviderClaude}, nil
-	default:
-		return nil, fmt.Errorf("unsupported provider %q (want codex, claude, or all)", value)
-	}
 }
 
 func newInternalCommand() *cobra.Command {
@@ -709,17 +748,12 @@ func newInternalCommand() *cobra.Command {
 		Hidden: true,
 	}
 	ingestCommand.AddCommand(newCodexIngestCommand())
-	ingestCommand.AddCommand(newClaudeIngestCommand())
 	internal.AddCommand(ingestCommand)
 	return internal
 }
 
 func newCodexIngestCommand() *cobra.Command {
 	return newProviderIngestCommand("codex", ingest.Codex)
-}
-
-func newClaudeIngestCommand() *cobra.Command {
-	return newProviderIngestCommand("claude", ingest.Claude)
 }
 
 type providerIngest func(context.Context, []byte, ingest.Options) (event.Event, error)
@@ -748,7 +782,7 @@ func newProviderIngestCommand(name string, capture providerIngest) *cobra.Comman
 				return nil
 			}
 
-			fmt.Fprintf(command.ErrOrStderr(), "whydiff: capture warning: %v\n", err)
+			fmt.Fprintf(command.ErrOrStderr(), "why-diff: capture warning: %v\n", err)
 			if strict {
 				return errStrictCapture
 			}
@@ -756,7 +790,7 @@ func newProviderIngestCommand(name string, capture providerIngest) *cobra.Comman
 		},
 	}
 	command.Flags().BoolVar(&strict, "strict", false, "return a non-zero status when capture fails")
-	command.Flags().StringVar(&storeRoot, "store-root", "", "override the WhyDiff data root")
+	command.Flags().StringVar(&storeRoot, "store-root", "", "override the why-diff data root")
 	command.Flags().DurationVar(&lockTimeout, "lock-timeout", 500*time.Millisecond, "maximum time to wait for the session log lock")
 	return command
 }

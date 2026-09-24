@@ -29,7 +29,7 @@ func TestLocateUsesGitCommonDirectory(t *testing.T) {
 	if location.CommonGitDir != wantGitDir {
 		t.Fatalf("CommonGitDir = %q, want %q", location.CommonGitDir, wantGitDir)
 	}
-	if repository.DataRoot(location) != filepath.Join(wantGitDir, "whydiff") {
+	if repository.DataRoot(location) != filepath.Join(wantGitDir, "why-diff") {
 		t.Fatalf("DataRoot() = %q", repository.DataRoot(location))
 	}
 	if location.RepositoryID == "" || location.WorktreeID == "" {

@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -35,8 +36,10 @@ const (
 )
 
 type Service struct {
-	location repository.Location
-	store    *store.Store
+	location    repository.Location
+	store       *store.Store
+	entityCache map[string][]entity.Entity
+	entityMu    sync.Mutex
 }
 
 type SessionSummary struct {
@@ -157,8 +160,9 @@ func New(ctx context.Context, cwd string) (*Service, error) {
 		return nil, err
 	}
 	return &Service{
-		location: location,
-		store:    store.New(repository.DataRoot(location)),
+		location:    location,
+		store:       store.New(repository.DataRoot(location)),
+		entityCache: make(map[string][]entity.Entity),
 	}, nil
 }
 
@@ -194,6 +198,15 @@ func (s *Service) Session(ctx context.Context, selector string) (store.Session, 
 	}
 	defer index.Close()
 	return index.Session(ctx, selector)
+}
+
+func (s *Service) StreamSession(ctx context.Context, selector string, visit func(string, int, event.Event) error) (string, int, error) {
+	index, err := s.openIndex(ctx, false)
+	if err != nil {
+		return "", 0, err
+	}
+	defer index.Close()
+	return index.StreamSession(ctx, selector, visit)
 }
 
 func (s *Service) Finalize(ctx context.Context, selector string) (provenance.Archive, error) {
@@ -635,6 +648,7 @@ func (s *Service) deriveChangesForSession(ctx context.Context, session store.Ses
 			}
 		case event.KindToolCompleted:
 			before, ok := started[captured.Context.ToolCallID]
+			delete(started, captured.Context.ToolCallID)
 			if !ok || before.Checkpoint == nil || captured.Checkpoint == nil {
 				continue
 			}
@@ -684,52 +698,6 @@ func claimSupportsAttribution(claim reason.ValidationClaim, attribution Attribut
 	return started && completed
 }
 
-func (s *Service) attributionsForSession(ctx context.Context, session store.Session, path string, line int) ([]Attribution, error) {
-	started := map[string]event.Event{}
-	var matches []Attribution
-	for _, captured := range session.Events {
-		switch captured.Kind {
-		case event.KindToolStarted:
-			if captured.Context.ToolCallID != "" && captured.Checkpoint != nil {
-				started[captured.Context.ToolCallID] = captured
-			}
-		case event.KindToolCompleted:
-			if captured.Context.ToolCallID == "" || captured.Checkpoint == nil {
-				continue
-			}
-			before, ok := started[captured.Context.ToolCallID]
-			if !ok || before.Checkpoint == nil {
-				continue
-			}
-			patch, err := s.diffPath(ctx, before.Checkpoint.WorktreeTree, captured.Checkpoint.WorktreeTree, path)
-			if err != nil {
-				return nil, err
-			}
-			if patch == "" || (line > 0 && !patchTouchesLine(patch, line)) {
-				continue
-			}
-			tool, summary := toolDescription(before)
-			promptEvent, _ := precedingPromptEvent(session.Events, before)
-			matches = append(matches, Attribution{
-				SessionID:        session.ID,
-				Target:           path,
-				Line:             line,
-				TurnID:           before.Context.TurnID,
-				Prompt:           promptText(promptEvent),
-				PromptEventID:    promptEvent.EventID,
-				Tool:             tool,
-				ToolSummary:      summary,
-				StartedEventID:   before.EventID,
-				CompletedEventID: captured.EventID,
-				BeforeTree:       before.Checkpoint.WorktreeTree,
-				AfterTree:        captured.Checkpoint.WorktreeTree,
-				Patch:            patch,
-			})
-		}
-	}
-	return matches, nil
-}
-
 func (s *Service) diffPath(ctx context.Context, before, after, path string) (string, error) {
 	command := exec.CommandContext(ctx, "git", "-C", s.location.WorktreeRoot,
 		"diff", "--no-ext-diff", "--unified=3", before, after, "--", path)
@@ -767,7 +735,7 @@ func (s *Service) diffTrees(ctx context.Context, before, after string) ([]string
 
 func resolveSession(sessions []store.Session, selector string) (store.Session, error) {
 	if len(sessions) == 0 {
-		return store.Session{}, errors.New("no captured WhyDiff sessions")
+		return store.Session{}, errors.New("no captured why-diff sessions")
 	}
 	if selector == "" || selector == "latest" {
 		return sessions[0], nil

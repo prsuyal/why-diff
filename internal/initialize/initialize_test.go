@@ -6,13 +6,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/prsuyal/why-diff/internal/initialize"
 )
 
-const whyDiffCommand = "whydiff internal ingest codex"
+const whydiffCommand = "why-diff-hook codex"
 
 var expectedEvents = []string{
 	"SessionStart",
@@ -39,10 +40,10 @@ func TestRunCreatesIdempotentProjectConfiguration(t *testing.T) {
 	if !first.MarkerCreated || !first.HooksChanged {
 		t.Fatalf("first result = %+v, want both files changed", first)
 	}
-	if marker, err := os.ReadFile(filepath.Join(root, ".whydiff.toml")); err != nil || string(marker) != "schema_version = 1\n" {
+	if marker, err := os.ReadFile(filepath.Join(root, ".why-diff.toml")); err != nil || string(marker) != "schema_version = 1\n" {
 		t.Fatalf("project marker = %q, error = %v", marker, err)
 	}
-	assertWhyDiffHooks(t, first.HooksPath)
+	assertWhydiffHooks(t, first.HooksPath)
 
 	before, err := os.ReadFile(first.HooksPath)
 	if err != nil {
@@ -69,6 +70,51 @@ func TestRunCreatesIdempotentProjectConfiguration(t *testing.T) {
 	}
 	if !inspection.MarkerValid || !inspection.HooksValid {
 		t.Fatalf("inspection = %+v, want valid marker and hooks", inspection)
+	}
+}
+
+func TestGlobalSetupIsIdempotentAndPreservesOtherSettings(t *testing.T) {
+	codexRoot := filepath.Join(t.TempDir(), "codex")
+	claudeRoot := filepath.Join(t.TempDir(), "claude")
+	t.Setenv("CODEX_HOME", codexRoot)
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeRoot)
+	if err := os.MkdirAll(claudeRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(claudeRoot, "settings.json")
+	if err := os.WriteFile(settingsPath, []byte(`{"permissions":{"allow":["Read"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	providers := []initialize.Provider{initialize.ProviderCodex, initialize.ProviderClaude}
+	first, err := initialize.RunGlobalProviders(providers)
+	if err != nil || !first.HooksChanged || first.MarkerCreated {
+		t.Fatalf("first global setup = %+v, %v", first, err)
+	}
+	for _, provider := range providers {
+		path, configured, err := initialize.GlobalHookConfigured(provider)
+		if err != nil || !configured {
+			t.Fatalf("global %s hooks at %s: configured=%v, err=%v", provider, path, configured, err)
+		}
+	}
+	second, err := initialize.RunGlobalProviders(providers)
+	if err != nil || second.HooksChanged {
+		t.Fatalf("second global setup = %+v, %v", second, err)
+	}
+	var settings map[string]any
+	decodeFile(t, settingsPath, &settings)
+	if settings["permissions"] == nil {
+		t.Fatal("global setup removed Claude permissions")
+	}
+	disabled, err := initialize.DisableGlobal()
+	if err != nil || !disabled.HooksChanged {
+		t.Fatalf("disable global = %+v, %v", disabled, err)
+	}
+	decodeFile(t, settingsPath, &settings)
+	if settings["permissions"] == nil {
+		t.Fatal("global disable removed Claude permissions")
+	}
+	if _, err := os.Stat(filepath.Join(codexRoot, "hooks.json")); !os.IsNotExist(err) {
+		t.Fatalf("global Codex hooks remain: %v", err)
 	}
 }
 
@@ -159,8 +205,8 @@ func TestInspectAcceptsAdditionalDevelopmentConfiguration(t *testing.T) {
 	if _, err := initialize.Run(context.Background(), root); err != nil {
 		t.Fatal(err)
 	}
-	marker := "# WhyDiff development settings\nschema_version   =   1\nfuture_setting = true\n"
-	if err := os.WriteFile(filepath.Join(root, ".whydiff.toml"), []byte(marker), 0o644); err != nil {
+	marker := "# why-diff development settings\nschema_version   =   1\nfuture_setting = true\n"
+	if err := os.WriteFile(filepath.Join(root, ".why-diff.toml"), []byte(marker), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	inspection, err := initialize.Inspect(context.Background(), root)
@@ -211,7 +257,7 @@ func TestRunMergesWithoutRemovingExistingHooksOrFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o640 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o640 {
 		t.Fatalf("hooks mode = %o, want 640", info.Mode().Perm())
 	}
 
@@ -225,13 +271,13 @@ func TestRunMergesWithoutRemovingExistingHooksOrFields(t *testing.T) {
 	}
 	postGroups := top["hooks"].(map[string]any)["PostToolUse"].([]any)
 	if len(postGroups) != 2 {
-		t.Fatalf("PostToolUse groups = %d, want existing plus WhyDiff", len(postGroups))
+		t.Fatalf("PostToolUse groups = %d, want existing plus why-diff", len(postGroups))
 	}
 	firstGroup := postGroups[0].(map[string]any)
 	if firstGroup["matcher"] != "Bash" || firstGroup["future_group_field"] == nil {
 		t.Fatalf("existing group was not preserved: %+v", firstGroup)
 	}
-	assertWhyDiffHooks(t, hooksPath)
+	assertWhydiffHooks(t, hooksPath)
 
 	disabled, err := initialize.Disable(context.Background(), root)
 	if err != nil {
@@ -253,7 +299,7 @@ func TestRunMergesWithoutRemovingExistingHooksOrFields(t *testing.T) {
 	if firstGroup["matcher"] != "Bash" || firstGroup["future_group_field"] == nil {
 		t.Fatalf("Disable() did not preserve existing hook group: %+v", firstGroup)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".whydiff.toml")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, ".why-diff.toml")); !os.IsNotExist(err) {
 		t.Fatalf("project marker remains after Disable(): %v", err)
 	}
 }
@@ -307,7 +353,7 @@ func TestRunRefusesMalformedHooksWithoutChangingFiles(t *testing.T) {
 	if string(after) != string(existing) {
 		t.Fatal("malformed hooks file was modified")
 	}
-	if _, err := os.Stat(filepath.Join(root, ".whydiff.toml")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, ".why-diff.toml")); !os.IsNotExist(err) {
 		t.Fatalf("project marker was created during failed initialization: %v", err)
 	}
 }
@@ -347,12 +393,13 @@ func TestRunRefusesSymlinkedCodexDirectory(t *testing.T) {
 	}
 }
 
-func assertWhyDiffHooks(t *testing.T, path string) {
+func assertWhydiffHooks(t *testing.T, path string) {
 	t.Helper()
 	var top struct {
 		Hooks map[string][]struct {
 			Handlers []struct {
 				Command string `json:"command"`
+				Timeout int    `json:"timeout"`
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
@@ -361,13 +408,16 @@ func assertWhyDiffHooks(t *testing.T, path string) {
 		count := 0
 		for _, group := range top.Hooks[eventName] {
 			for _, handler := range group.Handlers {
-				if handler.Command == whyDiffCommand {
+				if handler.Command == whydiffCommand {
 					count++
+					if eventName == "SessionEnd" && handler.Timeout != 3 {
+						t.Errorf("SessionEnd timeout = %d, want 3", handler.Timeout)
+					}
 				}
 			}
 		}
 		if count != 1 {
-			t.Errorf("%s has %d WhyDiff handlers, want 1", eventName, count)
+			t.Errorf("%s has %d why-diff handlers, want 1", eventName, count)
 		}
 	}
 }

@@ -65,7 +65,7 @@ type ValidationClaim struct {
 	PassedBasis    string
 }
 
-const ValidationRuleID = "whydiff.test_fail_change_pass/v1"
+const ValidationRuleID = "why-diff.test_fail_change_pass/v1"
 
 var testCommandPattern = regexp.MustCompile(`(?i)(?:^|(?:&&|\|\||;|\|)\s*)(?:env\s+(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*|(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*)?(?:go\s+test|cargo\s+test|pytest|python(?:3)?\s+-m\s+pytest|npm(?:\s+run)?\s+test|pnpm(?:\s+run)?\s+test|yarn(?:\s+run)?\s+test|bun\s+test|npx\s+(?:jest|vitest)|(?:jest|vitest|rspec)|mvn(?:w)?\s+test|\./gradlew\s+test|gradle\s+test|dotnet\s+test|swift\s+test|mix\s+test)(?:\s|$)`)
 

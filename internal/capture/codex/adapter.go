@@ -1,4 +1,4 @@
-// Package codex translates Codex lifecycle hook payloads into WhyDiff events.
+// Package codex translates Codex lifecycle hook payloads into why-diff events.
 package codex
 
 import (

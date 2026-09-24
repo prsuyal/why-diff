@@ -1,4 +1,4 @@
-// Package initialize creates WhyDiff's repository-local configuration.
+// Package initialize creates why-diff's repository and user configuration.
 package initialize
 
 import (
@@ -54,12 +54,12 @@ type providerConfig struct {
 var providerConfigs = map[Provider]providerConfig{
 	ProviderCodex: {
 		provider: ProviderCodex, directory: ".codex", filename: "hooks.json",
-		command: "whydiff internal ingest codex", events: codexHookEvents,
-		description: "WhyDiff provenance capture hooks.", inlineConfig: true,
+		command: "why-diff-hook codex", events: codexHookEvents,
+		description: "why-diff provenance capture hooks.", inlineConfig: true,
 	},
 	ProviderClaude: {
 		provider: ProviderClaude, directory: ".claude", filename: "settings.json",
-		command: "whydiff internal ingest claude", events: claudeHookEvents,
+		command: "why-diff-hook claude", events: claudeHookEvents,
 	},
 }
 
@@ -106,7 +106,7 @@ func Inspect(ctx context.Context, cwd string) (Inspection, error) {
 	}
 	inspection := Inspection{
 		RepositoryRoot:  location.WorktreeRoot,
-		MarkerPath:      filepath.Join(location.WorktreeRoot, ".whydiff.toml"),
+		MarkerPath:      filepath.Join(location.WorktreeRoot, ".why-diff.toml"),
 		HooksPath:       filepath.Join(location.WorktreeRoot, ".codex", "hooks.json"),
 		ClaudeHooksPath: filepath.Join(location.WorktreeRoot, ".claude", "settings.json"),
 	}
@@ -114,7 +114,7 @@ func Inspect(ctx context.Context, cwd string) (Inspection, error) {
 	marker, err := os.ReadFile(inspection.MarkerPath)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			return inspection, fmt.Errorf("read WhyDiff project marker: %w", err)
+			return inspection, fmt.Errorf("read why-diff project marker: %w", err)
 		}
 	} else {
 		inspection.MarkerValid = hasSupportedSchemaVersion(marker)
@@ -128,7 +128,7 @@ func Inspect(ctx context.Context, cwd string) (Inspection, error) {
 	if hasInlineHooks, err := containsInlineHooks(inlineConfigPath); err != nil {
 		return inspection, err
 	} else if hasInlineHooks {
-		return inspection, fmt.Errorf("%s defines inline Codex hooks instead of the WhyDiff hooks file", inlineConfigPath)
+		return inspection, fmt.Errorf("%s defines inline Codex hooks instead of the why-diff hooks file", inlineConfigPath)
 	}
 	_, _, changed, err := prepareHooksFile(inspection.HooksPath, codexConfig)
 	if err != nil {
@@ -163,8 +163,148 @@ func Run(ctx context.Context, cwd string) (Result, error) {
 	return RunProviders(ctx, cwd, []Provider{ProviderCodex})
 }
 
+// GlobalHookConfigured reports whether the user settings contain why-diff's
+// global handler for this provider. Local hook processes use it to avoid
+// recording a second copy of the same event.
+func GlobalHookConfigured(provider Provider) (string, bool, error) {
+	config, ok := providerConfigs[provider]
+	if !ok {
+		return "", false, fmt.Errorf("unsupported capture provider %q", provider)
+	}
+	config.command += " --global"
+	path, err := globalHookPath(config)
+	if err != nil {
+		return "", false, err
+	}
+	if err := validateConfigurationDirectory(filepath.Dir(path), config); err != nil {
+		return path, false, err
+	}
+	if config.inlineConfig {
+		inlinePath := filepath.Join(filepath.Dir(path), "config.toml")
+		if hasInlineHooks, err := containsInlineHooks(inlinePath); err != nil {
+			return path, false, err
+		} else if hasInlineHooks {
+			return path, false, fmt.Errorf("%s defines inline Codex hooks instead of the why-diff hooks file", inlinePath)
+		}
+	}
+	_, _, changed, err := prepareHooksFile(path, config)
+	return path, !changed && err == nil, err
+}
+
+func globalHookPath(config providerConfig) (string, error) {
+	root := ""
+	switch config.provider {
+	case ProviderCodex:
+		root = os.Getenv("CODEX_HOME")
+	case ProviderClaude:
+		root = os.Getenv("CLAUDE_CONFIG_DIR")
+	}
+	if root == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("find home directory: %w", err)
+		}
+		root = filepath.Join(home, config.directory)
+	}
+	return filepath.Join(root, config.filename), nil
+}
+
+// RunGlobalProviders adds user-level hooks without changing any repository.
+func RunGlobalProviders(providers []Provider) (Result, error) {
+	type pendingHook struct {
+		config  providerConfig
+		path    string
+		encoded []byte
+		mode    os.FileMode
+		changed bool
+	}
+	pending := make([]pendingHook, 0, len(providers))
+	seen := make(map[Provider]bool)
+	for _, provider := range providers {
+		config, ok := providerConfigs[provider]
+		if !ok {
+			return Result{}, fmt.Errorf("unsupported capture provider %q", provider)
+		}
+		if seen[provider] {
+			continue
+		}
+		seen[provider] = true
+		config.command += " --global"
+		path, err := globalHookPath(config)
+		if err != nil {
+			return Result{}, err
+		}
+		if err := validateConfigurationDirectory(filepath.Dir(path), config); err != nil {
+			return Result{}, err
+		}
+		if config.inlineConfig {
+			inlinePath := filepath.Join(filepath.Dir(path), "config.toml")
+			if hasInlineHooks, err := containsInlineHooks(inlinePath); err != nil {
+				return Result{}, err
+			} else if hasInlineHooks {
+				return Result{}, fmt.Errorf("%s already defines inline Codex hooks; refusing to create a second hook source in the same config layer", inlinePath)
+			}
+		}
+		merged, mode, changed, err := prepareHooksFile(path, config)
+		if err != nil {
+			return Result{}, err
+		}
+		pending = append(pending, pendingHook{config, path, merged, mode, changed})
+	}
+	var result Result
+	for _, hook := range pending {
+		if result.HooksPath == "" {
+			result.HooksPath = hook.path
+		}
+		if hook.changed {
+			if err := os.MkdirAll(filepath.Dir(hook.path), 0o755); err != nil {
+				return Result{}, fmt.Errorf("create %s directory: %w", hook.config.directory, err)
+			}
+			if err := writeFileAtomic(hook.path, hook.encoded, hook.mode); err != nil {
+				return Result{}, err
+			}
+			result.HooksChanged = true
+		}
+		result.Hooks = append(result.Hooks, HookResult{Provider: hook.config.provider, Path: hook.path, Changed: hook.changed})
+	}
+	return result, nil
+}
+
+// DisableGlobal removes only why-diff's user-level handlers.
+func DisableGlobal() (DisableResult, error) {
+	var result DisableResult
+	for _, provider := range []Provider{ProviderCodex, ProviderClaude} {
+		config := providerConfigs[provider]
+		config.command += " --global"
+		path, err := globalHookPath(config)
+		if err != nil {
+			return DisableResult{}, err
+		}
+		if err := validateConfigurationDirectory(filepath.Dir(path), config); err != nil {
+			return DisableResult{}, err
+		}
+		encoded, mode, changed, removeFile, err := prepareDisabledHooksFile(path, config)
+		if err != nil {
+			return DisableResult{}, err
+		}
+		if changed {
+			if removeFile {
+				if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return DisableResult{}, fmt.Errorf("remove why-diff-only hooks file: %w", err)
+				}
+				result.HooksRemoved = true
+			} else if err := writeFileAtomic(path, encoded, mode); err != nil {
+				return DisableResult{}, err
+			}
+			result.HooksChanged = true
+		}
+		result.Hooks = append(result.Hooks, HookResult{Provider: provider, Path: path, Changed: changed, Removed: removeFile})
+	}
+	return result, nil
+}
+
 // RunProviders initializes one or more agent integrations without replacing
-// unrelated project settings. Run remains the backward-compatible Codex setup.
+// unrelated project settings. Run is the default Codex setup.
 func RunProviders(ctx context.Context, cwd string, providers []Provider) (Result, error) {
 	location, err := repository.Locate(ctx, cwd)
 	if err != nil {
@@ -172,7 +312,7 @@ func RunProviders(ctx context.Context, cwd string, providers []Provider) (Result
 	}
 
 	result := Result{RepositoryRoot: location.WorktreeRoot}
-	markerPath := filepath.Join(location.WorktreeRoot, ".whydiff.toml")
+	markerPath := filepath.Join(location.WorktreeRoot, ".why-diff.toml")
 	markerMissing, markerMode, err := missingRegularFile(markerPath, 0o644)
 	if err != nil {
 		return Result{}, err
@@ -242,7 +382,7 @@ func RunProviders(ctx context.Context, cwd string, providers []Provider) (Result
 	return result, nil
 }
 
-// Disable removes WhyDiff's repository hook handlers and project marker. It
+// Disable removes why-diff's repository hook handlers and project marker. It
 // deliberately retains captured provenance and unrelated provider settings.
 func Disable(ctx context.Context, cwd string) (DisableResult, error) {
 	location, err := repository.Locate(ctx, cwd)
@@ -250,16 +390,16 @@ func Disable(ctx context.Context, cwd string) (DisableResult, error) {
 		return DisableResult{}, err
 	}
 	result := DisableResult{RepositoryRoot: location.WorktreeRoot}
-	markerPath := filepath.Join(location.WorktreeRoot, ".whydiff.toml")
+	markerPath := filepath.Join(location.WorktreeRoot, ".why-diff.toml")
 	markerPresent := false
 	markerInfo, markerErr := os.Lstat(markerPath)
 	if markerErr == nil {
 		if !markerInfo.Mode().IsRegular() {
-			return DisableResult{}, fmt.Errorf("WhyDiff project marker is not a regular file: %s", markerPath)
+			return DisableResult{}, fmt.Errorf("why-diff project marker is not a regular file: %s", markerPath)
 		}
 		markerPresent = true
 	} else if !errors.Is(markerErr, os.ErrNotExist) {
-		return DisableResult{}, fmt.Errorf("inspect WhyDiff project marker: %w", markerErr)
+		return DisableResult{}, fmt.Errorf("inspect why-diff project marker: %w", markerErr)
 	}
 
 	for _, provider := range []Provider{ProviderCodex, ProviderClaude} {
@@ -276,7 +416,7 @@ func Disable(ctx context.Context, cwd string) (DisableResult, error) {
 		if changed {
 			if removeFile {
 				if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-					return DisableResult{}, fmt.Errorf("remove WhyDiff-only hooks file: %w", err)
+					return DisableResult{}, fmt.Errorf("remove why-diff-only hooks file: %w", err)
 				}
 				result.HooksRemoved = true
 			} else if err := writeFileAtomic(path, encoded, mode); err != nil {
@@ -289,7 +429,7 @@ func Disable(ctx context.Context, cwd string) (DisableResult, error) {
 
 	if markerPresent {
 		if err := os.Remove(markerPath); err != nil {
-			return DisableResult{}, fmt.Errorf("remove WhyDiff project marker: %w", err)
+			return DisableResult{}, fmt.Errorf("remove why-diff project marker: %w", err)
 		}
 		result.MarkerRemoved = true
 	}
@@ -336,7 +476,9 @@ func prepareDisabledHooksFile(path string, config providerConfig) ([]byte, os.Fi
 		}
 		kept := make([]json.RawMessage, 0, len(groups))
 		for _, groupRaw := range groups {
-			group, groupChanged, drop, err := removeWhyDiffFromGroup(groupRaw, eventName, config.command)
+			group := groupRaw
+			drop := false
+			group, groupChanged, drop, err := removeWhydiffFromGroup(group, eventName, config.command)
 			if err != nil {
 				return nil, 0, false, false, err
 			}
@@ -361,12 +503,12 @@ func prepareDisabledHooksFile(path string, config providerConfig) ([]byte, os.Fi
 	}
 	encoded, err := json.MarshalIndent(top, "", "  ")
 	if err != nil {
-		return nil, 0, false, false, fmt.Errorf("encode hooks without WhyDiff handlers: %w", err)
+		return nil, 0, false, false, fmt.Errorf("encode hooks without why-diff handlers: %w", err)
 	}
 	return append(encoded, '\n'), info.Mode().Perm(), true, false, nil
 }
 
-func removeWhyDiffFromGroup(raw json.RawMessage, eventName, hookCommand string) (json.RawMessage, bool, bool, error) {
+func removeWhydiffFromGroup(raw json.RawMessage, eventName, hookCommand string) (json.RawMessage, bool, bool, error) {
 	var group map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &group); err != nil || group == nil {
 		if err == nil {
@@ -492,7 +634,7 @@ func mergeHooks(top map[string]json.RawMessage, config providerConfig) ([]byte, 
 		}
 		found := false
 		for _, group := range groups {
-			hasHandler, err := groupContainsWhyDiff(group, eventName, config.command)
+			hasHandler, err := groupContainsWhydiff(group, eventName, config.command)
 			if err != nil {
 				return nil, false, err
 			}
@@ -528,7 +670,7 @@ func mergeHooks(top map[string]json.RawMessage, config providerConfig) ([]byte, 
 
 func hookTimeout(eventName string) int {
 	if eventName == "SessionEnd" {
-		return 5
+		return 3
 	}
 	return 2
 }
@@ -544,7 +686,7 @@ func decodeGroups(raw json.RawMessage, eventName string) ([]json.RawMessage, err
 	return groups, nil
 }
 
-func groupContainsWhyDiff(raw json.RawMessage, eventName, hookCommand string) (bool, error) {
+func groupContainsWhydiff(raw json.RawMessage, eventName, hookCommand string) (bool, error) {
 	var group map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &group); err != nil || group == nil {
 		if err == nil {
@@ -615,7 +757,7 @@ func missingRegularFile(path string, defaultMode os.FileMode) (bool, os.FileMode
 }
 
 func writeFileAtomic(path string, contents []byte, mode os.FileMode) error {
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".whydiff-init-*")
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".why-diff-init-*")
 	if err != nil {
 		return fmt.Errorf("create temporary configuration: %w", err)
 	}

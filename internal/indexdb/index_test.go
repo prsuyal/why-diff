@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -57,6 +58,9 @@ func TestRebuildPublishesQueryableDisposableProjection(t *testing.T) {
 			{SessionID: "session-1", CompletedEventID: "complete", Side: "after", Entity: after},
 		},
 		Edges: []indexdb.LineageEdge{{SessionID: "session-1", CompletedEventID: "complete", Edge: edge}},
+		EntityCache: []indexdb.EntityCacheEntry{{
+			BlobID: "blob-after", Language: "go", Entities: []entity.Entity{after},
+		}},
 	}
 
 	path := filepath.Join(t.TempDir(), "nested", "index.sqlite")
@@ -67,7 +71,7 @@ func TestRebuildPublishesQueryableDisposableProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
+	if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != 0o600 {
 		t.Fatalf("index permissions = %o, want 600", got)
 	}
 
@@ -87,8 +91,11 @@ func TestRebuildPublishesQueryableDisposableProjection(t *testing.T) {
 	if err != nil || len(session.Events) != 1 || session.Events[0].EventID != captured.EventID {
 		t.Fatalf("session = %+v, error = %v", session, err)
 	}
+	if string(session.Events[0].SourcePayload) != "null" {
+		t.Fatalf("indexed event retained redundant source payload: %s", session.Events[0].SourcePayload)
+	}
 	changes, err := database.Changes(ctx, "latest")
-	if err != nil || len(changes) != 1 || changes[0].Patch != "full patch" {
+	if err != nil || len(changes) != 1 || changes[0].Patch != "file patch" {
 		t.Fatalf("changes = %+v, error = %v", changes, err)
 	}
 	candidates, err := database.CandidateChanges(ctx, "auth.go", "session-1")
@@ -103,8 +110,12 @@ func TestRebuildPublishesQueryableDisposableProjection(t *testing.T) {
 	if err != nil || len(history.Nodes) != 2 || len(history.Edges) != 1 {
 		t.Fatalf("history = %+v, error = %v", history, err)
 	}
+	cache, found, err := database.CachedEntities(ctx, "blob-after", "go")
+	if err != nil || !found || len(cache) != 1 || cache[0].QualifiedName != "SessionTimeout" {
+		t.Fatalf("cached entities = %+v, found = %t, error = %v", cache, found, err)
+	}
 	stats, err := database.Stats(ctx)
-	if err != nil || stats.Sessions != 1 || stats.Events != 1 || stats.Changes != 1 || stats.Entities != 2 || stats.Edges != 1 {
+	if err != nil || stats.Sessions != 1 || stats.Events != 1 || stats.Changes != 1 || stats.Entities != 2 || stats.Edges != 1 || stats.CachedBlobs != 1 {
 		t.Fatalf("stats = %+v, error = %v", stats, err)
 	}
 }

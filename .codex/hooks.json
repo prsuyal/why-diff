@@ -1,11 +1,11 @@
 {
-  "description": "WhyDiff provenance capture hooks.",
+  "description": "why-diff provenance capture hooks.",
   "hooks": {
     "PermissionRequest": [
       {
         "hooks": [
           {
-            "command": "whydiff internal ingest codex",
+            "command": "why-diff-hook codex",
             "timeout": 2,
             "type": "command"
           }
@@ -16,7 +16,7 @@
       {
         "hooks": [
           {
-            "command": "whydiff internal ingest codex",
+            "command": "why-diff-hook codex",
             "timeout": 2,
             "type": "command"
           }
@@ -27,7 +27,7 @@
       {
         "hooks": [
           {
-            "command": "whydiff internal ingest codex",
+            "command": "why-diff-hook codex",
             "timeout": 2,
             "type": "command"
           }
@@ -38,7 +38,7 @@
       {
         "hooks": [
           {
-            "command": "whydiff internal ingest codex",
+            "command": "why-diff-hook codex",
             "timeout": 2,
             "type": "command"
           }
@@ -49,7 +49,7 @@
       {
         "hooks": [
           {
-            "command": "whydiff internal ingest codex",
+            "command": "why-diff-hook codex",
             "timeout": 2,
             "type": "command"
           }
@@ -60,8 +60,8 @@
       {
         "hooks": [
           {
-            "command": "whydiff internal ingest codex",
-            "timeout": 2,
+            "command": "why-diff-hook codex",
+            "timeout": 3,
             "type": "command"
           }
         ]
@@ -71,7 +71,7 @@
       {
         "hooks": [
           {
-            "command": "whydiff internal ingest codex",
+            "command": "why-diff-hook codex",
             "timeout": 2,
             "type": "command"
           }
@@ -82,7 +82,7 @@
       {
         "hooks": [
           {
-            "command": "whydiff internal ingest codex",
+            "command": "why-diff-hook codex",
             "timeout": 2,
             "type": "command"
           }
@@ -93,7 +93,7 @@
       {
         "hooks": [
           {
-            "command": "whydiff internal ingest codex",
+            "command": "why-diff-hook codex",
             "timeout": 2,
             "type": "command"
           }
@@ -104,7 +104,7 @@
       {
         "hooks": [
           {
-            "command": "whydiff internal ingest codex",
+            "command": "why-diff-hook codex",
             "timeout": 2,
             "type": "command"
           }
@@ -115,7 +115,7 @@
       {
         "hooks": [
           {
-            "command": "whydiff internal ingest codex",
+            "command": "why-diff-hook codex",
             "timeout": 2,
             "type": "command"
           }

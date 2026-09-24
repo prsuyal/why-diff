@@ -40,7 +40,7 @@ func BenchmarkCodexPromptCapture(b *testing.B) {
 func BenchmarkCodexToolCheckpointCapture(b *testing.B) {
 	repositoryRoot := b.TempDir()
 	benchmarkGit(b, repositoryRoot, "init", "--quiet")
-	benchmarkGit(b, repositoryRoot, "config", "user.name", "WhyDiff Benchmark")
+	benchmarkGit(b, repositoryRoot, "config", "user.name", "why-diff benchmark")
 	benchmarkGit(b, repositoryRoot, "config", "user.email", "benchmark@example.com")
 	if err := os.WriteFile(filepath.Join(repositoryRoot, "app.go"), []byte("package app\n"), 0o644); err != nil {
 		b.Fatal(err)

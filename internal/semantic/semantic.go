@@ -1,5 +1,5 @@
 // Package semantic generates explicitly labeled model claims from bounded
-// WhyDiff evidence packets.
+// why-diff evidence packets.
 package semantic
 
 import (

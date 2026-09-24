@@ -18,7 +18,7 @@ import (
 func BenchmarkWhySQLiteProjection(b *testing.B) {
 	root := b.TempDir()
 	benchmarkGit(b, root, "init", "--quiet")
-	benchmarkGit(b, root, "config", "user.name", "WhyDiff Benchmark")
+	benchmarkGit(b, root, "config", "user.name", "why-diff benchmark")
 	benchmarkGit(b, root, "config", "user.email", "benchmark@example.com")
 	path := filepath.Join(root, "target.go")
 	if err := os.WriteFile(path, []byte("package demo\n\nfunc Target() int { return 0 }\n"), 0o644); err != nil {

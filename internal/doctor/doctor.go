@@ -1,4 +1,4 @@
-// Package doctor diagnoses whether repository-local WhyDiff capture is usable.
+// Package doctor diagnoses whether repository-local why-diff capture is usable.
 package doctor
 
 import (
@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/prsuyal/why-diff/internal/indexdb"
 	"github.com/prsuyal/why-diff/internal/initialize"
@@ -64,7 +65,24 @@ func Run(ctx context.Context, cwd string, options Options) Report {
 		Status: StatusOK,
 		Detail: location.WorktreeRoot,
 	})
+	batch := exec.CommandContext(ctx, "git", "-C", location.WorktreeRoot, "cat-file", "--batch", "-Z")
+	batch.Stdin = strings.NewReader("")
+	if err := batch.Run(); err != nil {
+		report.Checks = append(report.Checks, Check{
+			Name: "Git batch reads", Status: StatusError,
+			Detail: "Git 2.42 or newer is required for indexed queries",
+		})
+	} else {
+		report.Checks = append(report.Checks, Check{
+			Name: "Git batch reads", Status: StatusOK,
+			Detail: "NUL-delimited object reads are available",
+		})
+	}
 
+	globalCodexPath, globalCodex, globalCodexErr := initialize.GlobalHookConfigured(initialize.ProviderCodex)
+	if globalCodexErr != nil {
+		report.Checks = append(report.Checks, Check{Name: "Global Codex hooks", Status: StatusError, Detail: globalCodexErr.Error()})
+	}
 	inspection, err := initialize.Inspect(ctx, cwd)
 	if err != nil {
 		report.Checks = append(report.Checks, Check{
@@ -75,28 +93,31 @@ func Run(ctx context.Context, cwd string, options Options) Report {
 	} else {
 		marker := Check{Name: "Project marker", Status: StatusOK, Detail: inspection.MarkerPath}
 		if !inspection.MarkerValid {
-			marker.Status = StatusError
-			marker.Detail = "missing or unsupported; run `whydiff init`"
+			if globalCodex {
+				marker.Status = StatusWarning
+				marker.Detail = "not needed for global capture"
+			} else {
+				marker.Status = StatusError
+				marker.Detail = "missing or unsupported; run `why-diff init` or `why-diff init --global`"
+			}
 		}
 		report.Checks = append(report.Checks, marker)
 
 		hooks := Check{Name: "Codex hooks", Status: StatusOK, Detail: inspection.HooksPath}
 		if !inspection.HooksValid {
-			hooks.Status = StatusWarning
-			hooks.Detail = "not configured; run `whydiff init --provider codex` to enable"
+			if globalCodex {
+				hooks.Detail = globalCodexPath + " (global)"
+			} else {
+				hooks.Status = StatusWarning
+				hooks.Detail = "not configured; run `why-diff init` to enable"
+			}
 		}
 		report.Checks = append(report.Checks, hooks)
 
-		claudeHooks := Check{Name: "Claude Code hooks", Status: StatusOK, Detail: inspection.ClaudeHooksPath}
-		if !inspection.ClaudeHooksValid {
-			claudeHooks.Status = StatusWarning
-			claudeHooks.Detail = "not configured; run `whydiff init --provider claude` to enable"
-		}
-		report.Checks = append(report.Checks, claudeHooks)
-		if !inspection.HooksValid && !inspection.ClaudeHooksValid {
+		if !inspection.HooksValid && !globalCodex {
 			report.Checks = append(report.Checks, Check{
 				Name: "Agent hooks", Status: StatusError,
-				Detail: "no supported agent integration is configured; run `whydiff init`",
+				Detail: "Codex capture is not configured; run `why-diff init`",
 			})
 		}
 	}
@@ -105,12 +126,12 @@ func Run(ctx context.Context, cwd string, options Options) Report {
 	if lookup == nil {
 		lookup = exec.LookPath
 	}
-	executable, err := lookup("whydiff")
+	executable, err := lookup("why-diff")
 	if err != nil {
 		report.Checks = append(report.Checks, Check{
 			Name:   "Hook executable",
 			Status: StatusError,
-			Detail: "`whydiff` is not on PATH; configured agents cannot run the generated hook command",
+			Detail: "`why-diff` is not on PATH; configured agents cannot run the generated hook command",
 		})
 	} else {
 		report.Checks = append(report.Checks, Check{
@@ -127,6 +148,17 @@ func Run(ctx context.Context, cwd string, options Options) Report {
 				})
 			}
 		}
+	}
+	hookExecutable, hookErr := lookup("why-diff-hook")
+	if hookErr != nil {
+		report.Checks = append(report.Checks, Check{
+			Name: "Hook recorder", Status: StatusError,
+			Detail: "`why-diff-hook` is not on PATH; install or rebuild the lightweight recorder",
+		})
+	} else {
+		report.Checks = append(report.Checks, Check{
+			Name: "Hook recorder", Status: StatusOK, Detail: hookExecutable,
+		})
 	}
 
 	dataRoot := repository.DataRoot(location)
@@ -170,7 +202,7 @@ func Run(ctx context.Context, cwd string, options Options) Report {
 		warningDetail := "no capture warnings in live sessions"
 		if warningCount > 0 {
 			warningStatus = StatusWarning
-			warningDetail = fmt.Sprintf("%d warning(s); inspect affected sessions with `whydiff show`", warningCount)
+			warningDetail = fmt.Sprintf("%d warning(s); inspect affected sessions with `why-diff show`", warningCount)
 		}
 		report.Checks = append(report.Checks, Check{Name: "Capture quality", Status: warningStatus, Detail: warningDetail})
 	}

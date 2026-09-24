@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/prsuyal/why-diff/internal/event"
+	"github.com/prsuyal/why-diff/internal/gitobject"
 	"github.com/prsuyal/why-diff/internal/repository"
 	"github.com/prsuyal/why-diff/internal/store"
 )
@@ -85,14 +86,14 @@ func Finalize(ctx context.Context, location repository.Location, session store.S
 		arguments = append(arguments, "-p", previous)
 	}
 	environment := append(os.Environ(),
-		"GIT_AUTHOR_NAME=WhyDiff",
-		"GIT_AUTHOR_EMAIL=whydiff@localhost",
-		"GIT_COMMITTER_NAME=WhyDiff",
-		"GIT_COMMITTER_EMAIL=whydiff@localhost",
+		"GIT_AUTHOR_NAME=why-diff",
+		"GIT_AUTHOR_EMAIL=why-diff@localhost",
+		"GIT_COMMITTER_NAME=why-diff",
+		"GIT_COMMITTER_EMAIL=why-diff@localhost",
 		"GIT_AUTHOR_DATE="+endedAt.Format(time.RFC3339),
 		"GIT_COMMITTER_DATE="+endedAt.Format(time.RFC3339),
 	)
-	commit, err := gitOutput(ctx, location, environment, []byte("WhyDiff session "+session.ID+"\n"), arguments...)
+	commit, err := gitOutput(ctx, location, environment, []byte("why-diff session "+session.ID+"\n"), arguments...)
 	if err != nil {
 		return Archive{}, err
 	}
@@ -106,12 +107,12 @@ func Finalize(ctx context.Context, location repository.Location, session store.S
 	return Archive{Ref: ref, Commit: commit, Tree: rootTree}, nil
 }
 
-// Sessions reads the latest canonical event stream from every WhyDiff session
+// Sessions reads the latest canonical event stream from every why-diff session
 // ref. These refs are authoritative after finalization; live JSONL files are a
 // writable projection that may be deleted and rebuilt.
 func Sessions(ctx context.Context, location repository.Location) ([]store.Session, error) {
 	output, err := gitOutput(ctx, location, nil, nil,
-		"for-each-ref", "--format=%(refname)", "refs/whydiff/sessions/")
+		"for-each-ref", "--format=%(refname)", "refs/why-diff/sessions/")
 	if err != nil {
 		return nil, err
 	}
@@ -119,15 +120,23 @@ func Sessions(ctx context.Context, location repository.Location) ([]store.Sessio
 		return nil, nil
 	}
 
+	refs := strings.Split(output, "\n")
+	specs := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		specs = append(specs, ref+":events.jsonl")
+	}
+	objects, err := gitobject.ReadBatch(ctx, location.WorktreeRoot, specs)
+	if err != nil {
+		return nil, fmt.Errorf("batch-read canonical session events: %w", err)
+	}
 	var sessions []store.Session
-	for _, ref := range strings.Split(output, "\n") {
-		encoded, err := gitBytes(ctx, location, "show", ref+":events.jsonl")
-		if err != nil {
-			return nil, fmt.Errorf("read canonical events from %s: %w", ref, err)
+	for index, object := range objects {
+		if object.Missing || object.Type != "blob" {
+			return nil, fmt.Errorf("canonical events missing from %s", refs[index])
 		}
-		session, err := store.DecodeSession(bytes.NewReader(encoded))
+		session, err := store.DecodeSession(bytes.NewReader(object.Data))
 		if err != nil {
-			return nil, fmt.Errorf("decode canonical events from %s: %w", ref, err)
+			return nil, fmt.Errorf("decode canonical events from %s: %w", refs[index], err)
 		}
 		if len(session.Events) > 0 {
 			sessions = append(sessions, session)
@@ -218,7 +227,7 @@ func writeTree(ctx context.Context, location repository.Location, entries []tree
 
 func sessionRef(sessionID string) string {
 	digest := sha256.Sum256([]byte(sessionID))
-	return "refs/whydiff/sessions/" + hex.EncodeToString(digest[:])
+	return "refs/why-diff/sessions/" + hex.EncodeToString(digest[:])
 }
 
 func gitOutput(ctx context.Context, location repository.Location, environment []string, input []byte, arguments ...string) (string, error) {

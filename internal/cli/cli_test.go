@@ -109,7 +109,7 @@ func TestInitCommand(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("Run(init) = %d, stderr = %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Review and trust") {
+	if !strings.Contains(stdout.String(), "Trust this project in Codex") {
 		t.Fatalf("stdout = %q, want hook trust instruction", stdout.String())
 	}
 	if _, err := os.Stat(filepath.Join(root, ".codex", "hooks.json")); err != nil {
@@ -117,62 +117,34 @@ func TestInitCommand(t *testing.T) {
 	}
 }
 
-func TestClaudeInitAndIngestCommands(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	runGit(t, root, "init", "--quiet")
-	output := runCLI(t, root, "init", "--provider", "claude")
-	if !strings.Contains(output, ".claude/settings.json (claude)") {
-		t.Fatalf("init output = %q", output)
-	}
-	settings, err := os.ReadFile(filepath.Join(root, ".claude", "settings.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(settings), "whydiff internal ingest claude") || !strings.Contains(string(settings), "PostToolUseFailure") {
-		t.Fatalf("Claude settings = %s", settings)
-	}
-	allOutput := runCLI(t, root, "init", "--provider", "all")
-	if !strings.Contains(allOutput, ".codex/hooks.json (codex)") {
-		t.Fatalf("all-provider init output = %q", allOutput)
-	}
-	if _, err := os.Stat(filepath.Join(root, ".codex", "hooks.json")); err != nil {
-		t.Fatalf("all-provider init did not create Codex hooks: %v", err)
-	}
-
-	storeRoot := filepath.Join(t.TempDir(), "store")
-	raw := fmt.Sprintf(`{
-  "session_id":"claude-cli", "cwd":%q, "hook_event_name":"PostToolUseFailure",
-  "tool_name":"Bash", "tool_use_id":"tool-1", "tool_input":{"command":"go test ./..."},
-  "error":"Exit code 1\nFAIL"
-}`, root)
+func TestGlobalInitAndDisableOutsideRepository(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
 	var stdout, stderr bytes.Buffer
-	code := cli.Run(context.Background(), []string{"internal", "ingest", "claude", "--strict", "--store-root", storeRoot}, cli.Environment{
-		Stdin: strings.NewReader(raw), Stdout: &stdout, Stderr: &stderr,
-	})
-	if code != 0 {
-		t.Fatalf("Claude ingest code = %d, stderr = %s", code, stderr.String())
+	environment := cli.Environment{
+		WorkingDirectory: t.TempDir(),
+		Stdin:            strings.NewReader(""),
+		Stdout:           &stdout,
+		Stderr:           &stderr,
 	}
-	matches, err := filepath.Glob(filepath.Join(storeRoot, "active", "*", "events.jsonl"))
-	if err != nil || len(matches) != 1 {
-		t.Fatalf("logs = %v, error = %v", matches, err)
+	if code := cli.Run(context.Background(), []string{"init", "--global"}, environment); code != 0 {
+		t.Fatalf("global init = %d: %s", code, stderr.String())
 	}
-	encoded, err := os.ReadFile(matches[0])
-	if err != nil {
-		t.Fatal(err)
+	if !strings.Contains(stdout.String(), "Initialized why-diff globally") {
+		t.Fatalf("global init output = %q", stdout.String())
 	}
-	var stored event.Event
-	if err := json.Unmarshal(bytes.TrimSpace(encoded), &stored); err != nil {
-		t.Fatal(err)
+	stdout.Reset()
+	stderr.Reset()
+	if code := cli.Run(context.Background(), []string{"disable", "--global"}, environment); code != 0 {
+		t.Fatalf("global disable = %d: %s", code, stderr.String())
 	}
-	if stored.Source.Provider != "claude-code" || stored.Kind != event.KindToolCompleted {
-		t.Fatalf("stored = %+v", stored)
+	if !strings.Contains(stdout.String(), "Disabled why-diff global capture") {
+		t.Fatalf("global disable output = %q", stdout.String())
 	}
 }
 
 func TestDoctorCommandReportsReadyAndMissingExecutable(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CODEX_HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 
 	root := t.TempDir()
 	command := exec.Command("git", "init", "--quiet", root)
@@ -191,7 +163,7 @@ func TestDoctorCommandReportsReadyAndMissingExecutable(t *testing.T) {
 	}{
 		{
 			name:   "ready",
-			lookup: func(string) (string, error) { return "/usr/local/bin/whydiff", nil },
+			lookup: func(string) (string, error) { return "/usr/local/bin/why-diff", nil },
 			code:   0,
 			want:   []string{"[ok] Project marker", "[ok] Codex hooks", "[warn] Provenance data", "Result: ready"},
 		},
@@ -231,7 +203,7 @@ func TestDisableCommandRetainsProvenance(t *testing.T) {
 	if _, err := initialize.Run(context.Background(), root); err != nil {
 		t.Fatal(err)
 	}
-	provenancePath := filepath.Join(root, ".git", "whydiff", "sentinel")
+	provenancePath := filepath.Join(root, ".git", "why-diff", "sentinel")
 	if err := os.MkdirAll(filepath.Dir(provenancePath), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +212,7 @@ func TestDisableCommandRetainsProvenance(t *testing.T) {
 	}
 
 	output := runCLI(t, root, "disable")
-	if !strings.Contains(output, "Disabled WhyDiff capture") || !strings.Contains(output, "provenance was retained") {
+	if !strings.Contains(output, "Disabled why-diff capture") || !strings.Contains(output, "provenance was retained") {
 		t.Fatalf("disable output = %q", output)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".codex", "hooks.json")); !os.IsNotExist(err) {
@@ -259,7 +231,7 @@ func TestSessionsShowAndWhyCommands(t *testing.T) {
 
 	root := t.TempDir()
 	runGit(t, root, "init", "--quiet")
-	runGit(t, root, "config", "user.name", "WhyDiff Test")
+	runGit(t, root, "config", "user.name", "why-diff test")
 	runGit(t, root, "config", "user.email", "test@example.com")
 	if err := os.WriteFile(filepath.Join(root, "auth.go"), []byte("package auth\n\nfunc Timeout() int { return 5 }\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -291,8 +263,8 @@ func TestSessionsShowAndWhyCommands(t *testing.T) {
 		{args: []string{"claims"}, want: []string{"resolving a test failure", "go test ./...", "Files: auth.go", "does not prove"}},
 		{args: []string{"explain", "auth.go:3", "--dry-run"}, want: []string{`"schema_version": 2`, `"operation": "explain_change"`, `"target": "auth.go:3"`, `"kind": "checkpoint_diff"`}},
 		{args: []string{"index", "status"}, want: []string{"Sessions: 1", "Events: 8", "Changes: 1", "Entities: 2", "Lineage edges: 1"}},
-		{args: []string{"index", "rebuild"}, want: []string{"Rebuilt WhyDiff's disposable SQLite index", "Sessions: 1", "Entities: 2"}},
-		{args: []string{"finalize", "session-cli"}, want: []string{"refs/whydiff/sessions/", "Commit:"}},
+		{args: []string{"index", "rebuild"}, want: []string{"Rebuilt why-diff's disposable SQLite index", "Sessions: 1", "Entities: 2"}},
+		{args: []string{"finalize", "session-cli"}, want: []string{"refs/why-diff/sessions/", "Commit:"}},
 	} {
 		var stdout, stderr bytes.Buffer
 		code := cli.Run(context.Background(), test.args, cli.Environment{
@@ -356,7 +328,7 @@ func TestEndToEndPreservesDirtyBaselineRevertsDeletionValidationAndArchiveFallba
 
 	root := t.TempDir()
 	runGit(t, root, "init", "--quiet")
-	runGit(t, root, "config", "user.name", "WhyDiff Test")
+	runGit(t, root, "config", "user.name", "why-diff test")
 	runGit(t, root, "config", "user.email", "test@example.com")
 	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte("{\"timeout\":5}\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -367,7 +339,7 @@ func TestEndToEndPreservesDirtyBaselineRevertsDeletionValidationAndArchiveFallba
 	runGit(t, root, "add", "config.json", "legacy.txt")
 	runGit(t, root, "commit", "--quiet", "-m", "initial")
 
-	// This staged change predates the agent. WhyDiff must use it as the tool's
+	// This staged change predates the agent. why-diff must use it as the tool's
 	// baseline and must never replace the developer's real index.
 	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte("{\"timeout\":10}\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -437,11 +409,11 @@ func TestEndToEndPreservesDirtyBaselineRevertsDeletionValidationAndArchiveFallba
 		t.Fatalf("reverted edit was not retained in provenance:\n%s", whyReverted)
 	}
 
-	active, err := filepath.Glob(filepath.Join(root, ".git", "whydiff", "active", "*"))
+	active, err := filepath.Glob(filepath.Join(root, ".git", "why-diff", "active", "*"))
 	if err != nil || len(active) != 1 {
 		t.Fatalf("active session directories = %v, error = %v", active, err)
 	}
-	backup := filepath.Join(root, ".git", "whydiff", "active-projection-backup")
+	backup := filepath.Join(root, ".git", "why-diff", "active-projection-backup")
 	if err := os.Rename(active[0], backup); err != nil {
 		t.Fatalf("remove live projection: %v", err)
 	}

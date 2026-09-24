@@ -1,4 +1,4 @@
-// Package claude translates Claude Code lifecycle hook payloads into WhyDiff events.
+// Package claude translates Claude Code lifecycle hook payloads into why-diff events.
 package claude
 
 import (
@@ -127,7 +127,7 @@ func normalizePayload(input hookInput) (event.Kind, any) {
 
 // A PostToolUse event is itself Claude's assertion that the tool succeeded.
 // Add that fact to the normalized response when the provider-specific response
-// does not already contain an outcome field understood by WhyDiff.
+// does not already contain an outcome field understood by why-diff.
 func successfulResponse(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return mustJSON(map[string]any{"success": true})
