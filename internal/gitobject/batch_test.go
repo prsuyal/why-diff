@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -20,14 +21,18 @@ func TestReadBatchReturnsObjectsAndMissingPaths(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "hello world.txt"), []byte("hello\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "line\nbreak.txt"), []byte("newline\n"), 0o644); err != nil {
+	specialPath := "line\nbreak.txt"
+	if runtime.GOOS == "windows" {
+		specialPath = "semi;colon.txt" // Windows cannot create filenames containing newlines.
+	}
+	if err := os.WriteFile(filepath.Join(root, specialPath), []byte("newline\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	git(t, root, "add", ".")
 	git(t, root, "commit", "--quiet", "-m", "initial")
 	tree := git(t, root, "show", "-s", "--format=%T", "HEAD")
 	objects, err := gitobject.ReadBatch(context.Background(), root, []string{
-		tree + ":hello world.txt", tree + ":missing.txt", tree + ":line\nbreak.txt",
+		tree + ":hello world.txt", tree + ":missing.txt", tree + ":" + specialPath,
 	})
 	if err != nil {
 		t.Fatal(err)
