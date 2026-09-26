@@ -19,7 +19,9 @@ import (
 )
 
 func TestAgentHooksCaptureAnActualChangedLine(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("CODEX_HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("COPILOT_HOME", t.TempDir())
@@ -104,6 +106,9 @@ func TestAgentHooksCaptureAnActualChangedLine(t *testing.T) {
 }
 
 func TestCursorMalformedPreToolUseStaysFailOpen(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	var stdout, stderr bytes.Buffer
 	code := hookcli.RunWithOutput(context.Background(), []string{"cursor", "preToolUse"}, strings.NewReader("bad-json"), &stdout, &stderr)
 	if code != 0 || stdout.String() != "{\"permission\":\"ask\"}\n" || !strings.Contains(stderr.String(), "capture warning") {

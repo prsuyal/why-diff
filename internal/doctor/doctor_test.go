@@ -83,7 +83,9 @@ func TestRunRequiresCodexHooks(t *testing.T) {
 }
 
 func TestRunChecksSelectedAgent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	root := t.TempDir()
 	git(t, root, "init", "--quiet")
 	if _, err := initialize.RunProviders(context.Background(), root, []initialize.Provider{initialize.ProviderCursor}); err != nil {

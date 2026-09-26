@@ -119,7 +119,9 @@ func TestGlobalSetupIsIdempotentAndPreservesOtherSettings(t *testing.T) {
 }
 
 func TestNewProviderGlobalAndLocalHooksCanBeRemoved(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("COPILOT_HOME", t.TempDir())
 	providers := []initialize.Provider{initialize.ProviderCursor, initialize.ProviderGemini, initialize.ProviderCopilot}
 	root := newGitRepository(t)
