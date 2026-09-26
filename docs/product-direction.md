@@ -61,7 +61,7 @@ The website interaction and visual rules live in [website/DESIGN.md](../website/
 
 ## Agent integrations
 
-The capture boundary is the agent host's hook events, not its model API. A new adapter must map prompts, tool start/end events, and working directories into the existing event and checkpoint format. Only Codex has been verified end to end and belongs in current release copy.
+The capture boundary is the agent host's hook events, not its model API. A new adapter must map prompts, tool start/end events, and working directories into the existing event and checkpoint format. Only Codex has been verified end to end. Source adapter names may appear on the website with docs that state the current release and verification status; do not call the other hosts live-verified.
 
 The source tree now has hook adapters and `init --agent` setup for [Claude Code](https://code.claude.com/docs/en/hooks), [Cursor](https://prod.cursor.com/docs/hooks), [Gemini CLI](https://geminicli.com/docs/hooks/reference/), and [GitHub Copilot CLI](https://docs.github.com/en/copilot/reference/hooks-reference). Tests send payloads shaped like each host's documented hook events through the recorder, edit a real Git worktree, and query the changed line. These are contract and local user-flow tests, not live sessions of the four hosts. Codex remains the only live-verified integration in release copy. See [agent-adapters.md](agent-adapters.md) for setup and the remaining live checks.
 

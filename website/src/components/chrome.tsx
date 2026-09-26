@@ -17,6 +17,7 @@ export function SiteHeader() {
         <Link className="brand" href="/" aria-label="why-diff home"><Mark /><span>why-diff</span></Link>
         <nav className="site-nav" aria-label="Main navigation">
           <Link href="/#how">How it works</Link>
+          <Link href="/#commands">Commands</Link>
           <Link href="/docs">Docs</Link>
           <a href="https://github.com/prsuyal/why-diff" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
         </nav>

@@ -1,11 +1,27 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import Image from "next/image";
 import Link from "next/link";
 import { Command } from "@/components/command";
 import { Demo } from "@/components/demo";
 
 const brew = "brew install prsuyal/tap/why-diff";
 const quick = "curl -fsSL https://raw.githubusercontent.com/prsuyal/why-diff/main/scripts/install.sh | sh";
+const agents = [
+  { name: "Codex", icon: "/agents/openai.svg" },
+  { name: "Claude Code", icon: "/agents/claude.svg" },
+  { name: "Cursor", icon: "/agents/cursor.svg" },
+  { name: "Gemini CLI", icon: "/agents/gemini.svg" },
+  { name: "Copilot CLI", icon: "/agents/copilot.svg" },
+];
+const commonCommands = [
+  { command: "init [--global]", use: "Turn on capture for this repository or every repository." },
+  { command: "sessions", use: "List recorded agent sessions." },
+  { command: "show [session]", use: "Read the prompts, tools, and results in order." },
+  { command: "diff [session]", use: "See file changes observed around tool calls." },
+  { command: "why <file[:line]>", use: "Find the tool interval and patch for a change." },
+  { command: "doctor", use: "Check hooks, Git support, and capture warnings." },
+];
 
 export default function Home() {
   const demoOutput = readFileSync(join(process.cwd(), "fixtures/why-output.txt"), "utf8");
@@ -17,6 +33,21 @@ export default function Home() {
           <p className="hero-description">When Codex leaves a change you didn&apos;t expect, run why-diff on the line. See the request it was handling, the command running when the edit appeared, and the patch around it.</p>
           <div className="hero-command"><span className="hero-command-label">Install with Homebrew</span><Command command={brew} /></div>
           <div className="hero-actions"><Link href="/docs">Docs</Link><a href="#install">Other install options</a></div>
+        </div>
+      </section>
+
+      <section className="agent-strip" aria-label="Agent hook adapters">
+        <div className="site-shell agent-strip-inner">
+          <div className="agent-strip-heading"><span className="eyebrow">HOOK ADAPTERS IN SOURCE</span><Link href="/docs#agents">Setup and status</Link></div>
+          <div className="agent-marquee">
+            <div className="agent-track">
+              {[0, 1].map((copy) => (
+                <ul className="agent-list" aria-hidden={copy === 1} key={copy}>
+                  {agents.map(({ name, icon }) => <li key={name}><Image src={icon} alt="" width={25} height={25} unoptimized /><span>{name}</span></li>)}
+                </ul>
+              ))}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -60,6 +91,13 @@ export default function Home() {
               <div><span>TESTS</span><strong>failed → passed</strong></div>
             </div>
           </article>
+        </div>
+      </section>
+
+      <section className="command-reference site-shell" id="commands">
+        <div className="command-reference-heading"><div><span className="eyebrow">THE CLI</span><h2>Command reference.</h2></div><Link href="/docs#commands">Every command in the docs</Link></div>
+        <div className="command-reference-list">
+          {commonCommands.map(({ command, use }, index) => <div className="command-reference-row" key={command}><span>{String(index + 1).padStart(2, "0")}</span><code>why-diff {command}</code><p>{use}</p></div>)}
         </div>
       </section>
 

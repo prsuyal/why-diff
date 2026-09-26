@@ -1,45 +1,5 @@
 # why-diff
 
-The [product direction](docs/product-direction.md) explains the evidence model, the agent investigation loop, and proposed improvements. The [website design plan](website/DESIGN.md) covers the public demo.
-
-**A line in the diff makes you ask why. why-diff shows when it appeared and what Codex was doing.**
-
-Ask a coding agent to fix one bug and it may inspect twenty files, run a code
-generator that rewrites an unrelated config file, change two functions, undo
-one approach, and replace it with another. By the end, Git can show the final
-diff—but not which prompt led to which tool call, when the unexpected file was
-rewritten, which experiment was later undone, or what happened between a
-failing test and a passing one.
-
-why-diff records that missing context while the work happens. It is a local CLI
-for Codex that connects prompts, tool calls, command results,
-and intermediate repository states to the code changes left behind.
-
-For example, a password reset fix also rewrote the deployed session policy.
-Here is a shortened excerpt from the local demo fixture:
-
-```console
-$ why-diff why deploy/session-policy.yaml:3
-deploy/session-policy.yaml:3 changed while Bash — sh scripts/render-session-policy.sh ran.
-Request: Revoke existing sessions after a password reset
-
-Patch:
- password_reset:
--  revoke_existing_sessions: false
--  audit_event: enabled
-+  revoke_existing_sessions: true
-+  audit_event: disabled
- refresh_tokens:
--  ttl: 30m
-+  ttl: 30d
-
-Tests: `go test ./...` failed before and passed afterward.
-```
-
-That tells you where to look next: the policy generator. It does not tell you
-why audit events were disabled. The full output includes the captured
-event IDs and Git tree IDs so you can verify the timeline.
-
 ## 1. Install why-diff
 
 Install with one of these methods:
@@ -592,6 +552,8 @@ On the next append, why-diff preserves an incomplete JSONL suffix in a private
 repair the log.
 
 ## Development
+
+The [product direction](docs/product-direction.md) explains the evidence model and proposed work. The [website design plan](website/DESIGN.md) covers the public demo.
 
 Run the full checks:
 
