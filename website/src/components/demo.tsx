@@ -21,6 +21,17 @@ const steps = [
     body: "The answer points to the policy generator and shows its patch. The test passed, but that does not explain or justify the audit change.",
   },
 ] as const;
+const diffLines = [
+  { number: "1", text: "password_reset:", className: "" },
+  { number: "2", text: "-  revoke_existing_sessions: false", className: "is-removed" },
+  { number: "2", text: "+  revoke_existing_sessions: true", className: "is-added" },
+  { number: "3", text: "-  audit_event: enabled", className: "is-removed" },
+  { number: "3", text: "+  audit_event: disabled", className: "is-added is-focus" },
+  { number: "4", text: "refresh_tokens:", className: "" },
+  { number: "5", text: "-  ttl: 30m", className: "is-removed" },
+  { number: "5", text: "+  ttl: 30d", className: "is-added" },
+  { number: "6", text: "  rotate_on_use: true", className: "" },
+];
 
 function outputStyle(line: string) {
   if (line.startsWith("+  ")) return "is-added";
@@ -42,6 +53,7 @@ export function Demo({ output }: { output: string }) {
   }, []);
 
   return (
+    <>
     <div className="investigation">
       <div className="investigation-copy">
         {steps.map((item, index) => (
@@ -71,15 +83,7 @@ export function Demo({ output }: { output: string }) {
               <div className="editor-tabs"><span className="editor-json-icon">◇</span> session-policy.yaml <span className="editor-tab-close">×</span></div>
               <div className="editor-breadcrumb">demo <span>›</span> deploy <span>›</span> session-policy.yaml</div>
               <div className="editor-code">
-                <div className="editor-line"><span>1</span><code>password_reset:</code></div>
-                <div className="editor-line is-removed"><span>2</span><code>-  revoke_existing_sessions: false</code></div>
-                <div className="editor-line is-added"><span>2</span><code>+  revoke_existing_sessions: true</code></div>
-                <div className="editor-line is-removed"><span>3</span><code>-  audit_event: enabled</code></div>
-                <div className="editor-line is-added is-focus"><span>3</span><code>+  audit_event: disabled</code></div>
-                <div className="editor-line"><span>4</span><code>refresh_tokens:</code></div>
-                <div className="editor-line is-removed"><span>5</span><code>-  ttl: 30m</code></div>
-                <div className="editor-line is-added"><span>5</span><code>+  ttl: 30d</code></div>
-                <div className="editor-line"><span>6</span><code>  rotate_on_use: true</code></div>
+                {diffLines.map(({ number, text, className }, index) => <div className={`editor-line ${className}`} key={index}><span>{number}</span><code>{text}</code></div>)}
               </div>
             </div>
           </div>
@@ -96,5 +100,19 @@ export function Demo({ output }: { output: string }) {
       </div>
       <p className="investigation-source">Editor mockup. CLI output recorded in a local test repository using scripted Codex hook events.</p>
     </div>
+    <div className="mobile-investigation">
+      {steps.map((item, index) => (
+        <article className={`mobile-investigation-step ${step === index ? "is-current" : ""}`} data-investigation-step={index} key={item.number}>
+          <span className="investigation-count">{item.number} / 03</span>
+          <h3>{item.title}</h3>
+          <p>{item.body}</p>
+          {index === 0 && <div className="mobile-diff"><div className="mobile-panel-title">deploy/session-policy.yaml</div><div className="mobile-diff-lines">{diffLines.map(({ number, text, className }, lineIndex) => <div className={`mobile-diff-line ${className}`} key={lineIndex}><span>{number}</span><code>{text}</code></div>)}</div></div>}
+          {index === 1 && <div className="mobile-terminal"><div className="mobile-panel-title">TERMINAL <span>zsh</span></div><div className="mobile-terminal-body"><span className="terminal-location">~/demo %</span><code>{command}</code></div></div>}
+          {index === 2 && <div className="mobile-terminal"><div className="mobile-panel-title">TERMINAL <span>zsh</span></div><div className="mobile-terminal-body"><div className="mobile-terminal-command"><span className="terminal-location">~/demo %</span><code>{command}</code></div><pre className="mobile-terminal-output">{output.split("\n").map((line, lineIndex) => <span className={`terminal-line ${outputStyle(line)}`} key={lineIndex}>{line || "\u00a0"}</span>)}</pre></div></div>}
+        </article>
+      ))}
+      <p className="investigation-source">Editor mockup. CLI output recorded in a local test repository using scripted Codex hook events.</p>
+    </div>
+    </>
   );
 }

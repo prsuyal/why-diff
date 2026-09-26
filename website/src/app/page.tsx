@@ -33,20 +33,18 @@ export default function Home() {
           <p className="hero-description">When Codex leaves a change you didn&apos;t expect, run why-diff on the line. See the request it was handling, the command running when the edit appeared, and the patch around it.</p>
           <div className="hero-command"><span className="hero-command-label">Install with Homebrew</span><Command command={brew} /></div>
           <div className="hero-actions"><Link href="/docs">Docs</Link><a href="#install">Other install options</a></div>
-        </div>
-      </section>
-
-      <section className="agent-strip" aria-label="Agent hook adapters">
-        <div className="site-shell agent-strip-inner">
-          <div className="agent-strip-heading"><span className="eyebrow">HOOK ADAPTERS IN SOURCE</span><Link href="/docs#agents">Setup and status</Link></div>
-          <div className="agent-marquee">
-            <div className="agent-track">
-              {[0, 1].map((copy) => (
-                <ul className="agent-list" aria-hidden={copy === 1} key={copy}>
-                  {agents.map(({ name, icon }) => <li key={name}><Image src={icon} alt="" width={25} height={25} unoptimized /><span>{name}</span></li>)}
-                </ul>
-              ))}
+          <div className="hero-agents" aria-label="Coding agents with why-diff hooks">
+            <div className="hero-agents-heading"><span>Connect your coding agent.</span><Link href="/docs#agents">Agent setup</Link></div>
+            <div className="agent-marquee">
+              <div className="agent-track">
+                {[0, 1, 2, 3].map((copy) => (
+                  <ul className="agent-list" aria-hidden={copy !== 0} key={copy}>
+                    {agents.map(({ name, icon }) => <li key={name}><Image src={icon} alt="" width={25} height={25} unoptimized /><span>{name}</span></li>)}
+                  </ul>
+                ))}
+              </div>
             </div>
+            <p>Codex is in the current release. The other hooks are available in source builds.</p>
           </div>
         </div>
       </section>
