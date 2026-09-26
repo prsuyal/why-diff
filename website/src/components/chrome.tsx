@@ -33,7 +33,7 @@ export function SiteFooter() {
       <div className="site-shell footer-inner">
         <div className="footer-identity">
           <Link className="brand" href="/"><Mark /><span>why-diff</span></Link>
-          <span>Free and open source · MIT</span>
+          <span>Always free and open source</span>
         </div>
         <nav className="footer-links" aria-label="Footer navigation"><Link href="/docs">Docs</Link><a href="https://github.com/prsuyal/why-diff" target="_blank" rel="noreferrer">GitHub ↗</a></nav>
       </div>
