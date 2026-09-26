@@ -62,7 +62,7 @@ export default function Home() {
             <div className="flow-graph" role="img" aria-label="Codex hook events flow into why-diff and local Git evidence">
               <div className="flow-node"><small>AGENT</small><strong>Codex</strong></div>
               <div className="flow-connector" />
-              <div className="flow-node flow-node-main"><small>HOOKS</small><strong>why-diff</strong></div>
+              <div className="flow-node"><small>HOOKS</small><strong>why-diff</strong></div>
               <div className="flow-connector" />
               <div className="flow-node"><small>LOCAL GIT</small><strong>Repository</strong></div>
             </div>
@@ -72,7 +72,7 @@ export default function Home() {
             <p>Snapshots around a tool call can show edits made by a script, even if the agent later undoes them.</p>
             <div className="checkpoint-visual" role="img" aria-label="The policy value changed during the generator call">
               <div className="checkpoint-card"><span>BEFORE</span><code>audit_event: enabled</code></div>
-              <div className="checkpoint-card checkpoint-tool"><span>TOOL CALL</span><code>render-session-policy.sh</code></div>
+              <div className="checkpoint-card"><span>TOOL CALL</span><code>render-session-policy.sh</code></div>
               <div className="checkpoint-card"><span>AFTER</span><code>audit_event: disabled</code></div>
             </div>
           </article>
