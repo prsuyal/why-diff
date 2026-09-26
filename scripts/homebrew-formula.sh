@@ -35,7 +35,6 @@ cat <<EOF
 class WhyDiff < Formula
   desc "Explain AI-assisted code changes from captured evidence"
   homepage "https://github.com/prsuyal/why-diff"
-  version "${tag#v}"
   license "MIT"
 
   depends_on "git"
