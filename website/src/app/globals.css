@@ -140,14 +140,13 @@ a { color: inherit; text-decoration: none; }
 
 .demo-section { padding-top: 120px; }
 .section-intro { margin: 0 0 48px; font-size: clamp(34px, 4.2vw, 54px); line-height: 1.09; letter-spacing: -.06em; font-weight: 560; }
-.feature-heading h2, .install-heading h2 { margin: 15px 0 0; font-size: clamp(34px, 4.2vw, 54px); line-height: 1.09; letter-spacing: -.06em; font-weight: 560; }
+.feature-heading h2, .install-heading h2 { margin: 0; font-size: clamp(34px, 4.2vw, 54px); line-height: 1.09; letter-spacing: -.06em; font-weight: 560; }
 
 .features-section { padding-top: 110px; padding-bottom: 145px; }
 .feature-heading { margin-bottom: 40px; }
-.feature-heading p { max-width: 560px; margin: 16px 0 0; color: var(--text-muted); font-size: 15px; line-height: 1.6; }
 .command-reference { padding-bottom: 130px; }
 .command-reference-heading { display: flex; align-items: end; justify-content: space-between; gap: 25px; margin-bottom: 38px; }
-.command-reference-heading h2 { margin: 14px 0 0; font-size: clamp(34px, 4.2vw, 54px); line-height: 1.09; letter-spacing: -.06em; font-weight: 560; }
+.command-reference-heading h2 { margin: 0; font-size: clamp(34px, 4.2vw, 54px); line-height: 1.09; letter-spacing: -.06em; font-weight: 560; }
 .command-reference-heading a { color: var(--text-muted); font-size: 13px; white-space: nowrap; text-decoration: underline; text-decoration-color: #777; text-underline-offset: 4px; }
 .command-reference-heading a:hover { color: var(--text); text-decoration-color: var(--text); }
 .command-reference-list { border-top: 1px solid var(--line); }
@@ -158,15 +157,14 @@ a { color: inherit; text-decoration: none; }
 
 .install-section { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #101010; padding: 110px 0 120px; }
 .install-heading { margin-bottom: 40px; }
-.install-heading p { color: var(--text-muted); margin: 17px 0 0; font-size: 15px; }
 .install-grid { display: grid; grid-template-columns: 1.15fr 1fr; grid-template-rows: repeat(2, minmax(150px, 1fr)); gap: 12px; }
 .install-card { min-width: 0; display: flex; flex-direction: column; padding: 23px; background: #181818; border: 1px solid var(--line); border-radius: 5px; }
 .install-featured { grid-row: span 2; border-color: #777; background: #202020; }
 .install-card-top { display: flex; justify-content: space-between; gap: 12px; color: var(--dim); font: 11px var(--font-geist-mono), monospace; }
-.install-featured .install-card-top span:first-child { color: var(--site-accent); }
 .install-card h3 { font-size: 23px; letter-spacing: -.045em; font-weight: 550; margin: 25px 0 20px; }
 .install-featured h3 { margin-top: 75px; font-size: 36px; }
 .install-card p { color: var(--text-muted); font-size: 12px; line-height: 1.5; margin: auto 0 0; padding-top: 20px; }
+.install-card p code { overflow-wrap: anywhere; }
 .release-link { min-height: 51px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; border: 1px solid var(--line-strong); background: #111; border-radius: 4px; color: var(--accent-bright); font-size: 12px; }
 .release-link:hover { border-color: var(--site-accent); }
 .activate-box { margin-top: 64px; padding: 36px 42px; display: grid; grid-template-columns: 1fr 1.12fr; gap: 70px; border: 1px solid var(--line); background: #171717; }

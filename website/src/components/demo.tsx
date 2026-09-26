@@ -85,7 +85,7 @@ export function Demo({ output }: { output: string }) {
           <div className="editor-statusbar"><span><GitBranch size={12} /> Git</span><span>session-policy.yaml · Ln 3</span></div>
         </div>
       </div>
-      <p className="investigation-source">Editor mockup. CLI output recorded in a local test repository using scripted Codex hook events.</p>
+      <p className="investigation-source">Editor mockup. Terminal output comes from a local test run using scripted Codex hooks.</p>
     </div>
     <div className="mobile-investigation">
       {steps.map((item, index) => (
@@ -97,7 +97,7 @@ export function Demo({ output }: { output: string }) {
           {index === 2 && <div className="mobile-terminal"><div className="mobile-panel-title">TERMINAL <span>zsh</span></div><div className="mobile-terminal-body"><div className="mobile-terminal-command"><span className="terminal-location">~/demo %</span><code>{command}</code></div><pre className="mobile-terminal-output">{output.split("\n").map((line, lineIndex) => <span className={`terminal-line ${outputStyle(line)}`} key={lineIndex}>{line || "\u00a0"}</span>)}</pre></div></div>}
         </article>
       ))}
-      <p className="investigation-source">Editor mockup. CLI output recorded in a local test repository using scripted Codex hook events.</p>
+      <p className="investigation-source">Editor mockup. Terminal output comes from a local test run using scripted Codex hooks.</p>
     </div>
     </>
   );

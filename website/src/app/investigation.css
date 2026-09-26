@@ -16,7 +16,7 @@
 .editor-titlebar-right { margin-left: auto; color: #747474; }
 .editor-main { flex: 1; min-height: 0; display: flex; }
 .editor-activity { width: 42px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 25px; padding-top: 19px; border-right: 1px solid #292929; background: #171717; color: #686868; }
-.editor-activity .is-active { color: #eee; filter: drop-shadow(0 0 7px rgba(255,255,255,.3)); }
+.editor-activity .is-active { color: #eee; }
 .source-control { width: 155px; flex: none; border-right: 1px solid #303030; background: #151515; font: 11px var(--font-geist-mono), monospace; }
 .source-control-title { height: 45px; display: flex; align-items: center; justify-content: space-between; padding: 0 13px; color: #bbb; font-size: 9px; letter-spacing: .06em; }
 .source-control-group { display: flex; justify-content: space-between; padding: 10px 13px; border-top: 1px solid #292929; color: #8a8a8a; font-size: 9px; letter-spacing: .06em; }

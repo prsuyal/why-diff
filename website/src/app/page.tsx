@@ -15,12 +15,12 @@ const agents = [
   { name: "Copilot CLI", icon: "/agents/copilot.svg" },
 ];
 const commonCommands = [
-  { command: "init [--global]", use: "Turn on capture for this repository or every repository." },
-  { command: "sessions", use: "List recorded agent sessions." },
-  { command: "show [session]", use: "Read the prompts, tools, and results in order." },
-  { command: "diff [session]", use: "See file changes observed around tool calls." },
-  { command: "why <file[:line]>", use: "Find the tool interval and patch for a change." },
-  { command: "doctor", use: "Check hooks, Git support, and capture warnings." },
+  { command: "init [--global]", use: "Add Codex hooks for this repository or all Git repositories." },
+  { command: "sessions", use: "List captured sessions." },
+  { command: "show [session]", use: "Read a session's prompts, tool calls, and results." },
+  { command: "diff [session]", use: "See file changes captured during a session." },
+  { command: "why <file[:line]>", use: "See the request, tool call, and patch for a changed file or line." },
+  { command: "doctor", use: "Check hook setup and report capture problems." },
 ];
 
 export default function Home() {
@@ -30,11 +30,11 @@ export default function Home() {
       <section className="hero site-shell">
         <div className="hero-content">
           <h1>Why did that line change?</h1>
-          <p className="hero-description">When Codex leaves a change you didn&apos;t expect, run why-diff on the line. See the request it was handling, the command running when the edit appeared, and the patch around it.</p>
+          <p className="hero-description">When Codex changes a file or line you didn&apos;t expect, why-diff shows the request it was working on, the tool call during which the edit appeared, and the patch.</p>
           <div className="hero-command"><span className="hero-command-label">Install with Homebrew</span><Command command={brew} /></div>
           <div className="hero-actions"><Link href="/docs">Docs</Link><a href="#install">Other install options</a></div>
           <div className="hero-agents" aria-label="Coding agents with why-diff hooks">
-            <div className="hero-agents-heading"><span>Connect your coding agent.</span><Link href="/docs#agents">Agent setup</Link></div>
+            <div className="hero-agents-heading"><span>Coding agents</span><Link href="/docs#agents">Integration details</Link></div>
             <div className="agent-marquee">
               <div className="agent-track">
                 {[0, 1, 2, 3].map((copy) => (
@@ -44,7 +44,7 @@ export default function Home() {
                 ))}
               </div>
             </div>
-            <p>Codex is in the current release. The other hooks are available in source builds.</p>
+            <p>Codex works with the released version. To try the other agents, build why-diff from source.</p>
           </div>
         </div>
       </section>
@@ -55,21 +55,21 @@ export default function Home() {
       </section>
 
       <section className="features-section site-shell" id="flow">
-        <div className="feature-heading"><span className="eyebrow">How it fits</span><h2>One setup. A record of what happened.</h2><p>why-diff runs alongside Codex and stores its evidence in your Git repository.</p></div>
+        <div className="feature-heading"><h2>How why-diff records and finds changes</h2></div>
         <div className="flow-grid">
           <article className="flow-panel flow-panel-wide">
-            <div className="flow-panel-copy"><span className="flow-index">01 / SETUP</span><h3>Add capture once.</h3><p><code>why-diff init --global</code> adds the hooks. They run as Codex works; you keep using your editor and terminal.</p></div>
+            <div className="flow-panel-copy"><h3>why-diff records the Codex session</h3><p>Codex sends your prompts, tool calls, and results through hooks, and why-diff stores them in this repository.</p></div>
             <div className="flow-graph" role="img" aria-label="Codex hook events flow into why-diff and local Git evidence">
               <div className="flow-node"><small>AGENT</small><strong>Codex</strong></div>
-              <div className="flow-connector"><span>hook events</span></div>
+              <div className="flow-connector" />
               <div className="flow-node flow-node-main"><small>HOOKS</small><strong>why-diff</strong></div>
-              <div className="flow-connector"><span>Git trees</span></div>
-              <div className="flow-node"><small>LOCAL GIT</small><strong>Evidence</strong></div>
+              <div className="flow-connector" />
+              <div className="flow-node"><small>LOCAL GIT</small><strong>Repository</strong></div>
             </div>
           </article>
           <article className="flow-panel">
-            <span className="flow-index">02 / CAPTURE</span><h3>See the edit between tool calls.</h3>
-            <p>Snapshots bracket each call, including commands that quietly rewrite files.</p>
+            <h3>Compare Git snapshots</h3>
+            <p>Snapshots around a tool call can show edits made by a script, even if the agent later undoes them.</p>
             <div className="checkpoint-visual" role="img" aria-label="The policy value changed during the generator call">
               <div className="checkpoint-card"><span>BEFORE</span><code>audit_event: enabled</code></div>
               <div className="checkpoint-card checkpoint-tool"><span>TOOL CALL</span><code>render-session-policy.sh</code></div>
@@ -77,8 +77,7 @@ export default function Home() {
             </div>
           </article>
           <article className="flow-panel">
-            <span className="flow-index">03 / QUERY</span><h3>Ask about the line.</h3>
-            <p>The answer ties the changed line to the recorded request, tool interval, patch, and nearby tests.</p>
+            <h3>Look up a changed file or line</h3>
             <div className="evidence-table">
               <div><span>REQUEST</span><strong>Revoke existing sessions</strong></div>
               <div><span>TOOL</span><strong>render-session-policy.sh</strong></div>
@@ -90,7 +89,7 @@ export default function Home() {
       </section>
 
       <section className="command-reference site-shell" id="commands">
-        <div className="command-reference-heading"><div><span className="eyebrow">THE CLI</span><h2>Command reference.</h2></div><Link href="/docs#commands">Every command in the docs</Link></div>
+        <div className="command-reference-heading"><h2>Commands</h2><Link href="/docs#commands">Full command reference</Link></div>
         <div className="command-reference-list">
           {commonCommands.map(({ command, use }, index) => <div className="command-reference-row" key={command}><span>{String(index + 1).padStart(2, "0")}</span><code>why-diff {command}</code><p>{use}</p></div>)}
         </div>
@@ -98,15 +97,15 @@ export default function Home() {
 
       <section className="install-section" id="install">
         <div className="site-shell">
-          <div className="install-heading"><span className="eyebrow">Get started</span><h2>Install why-diff.</h2><p>Then enable capture for one repository or all of them.</p></div>
+          <div className="install-heading"><h2>Install why-diff</h2></div>
           <div className="install-grid">
-            <article className="install-card install-featured"><div className="install-card-top"><span>Homebrew</span><span>macOS · Linux</span></div><h3>Use Homebrew</h3><Command command={brew} compact /><p>Upgrade later with Brew.</p></article>
-            <article className="install-card"><div className="install-card-top"><span>Install script</span><span>macOS · Linux</span></div><h3>Run the installer</h3><Command command={quick} compact /><p>Downloads the release and checks its SHA-256 checksum.</p></article>
-            <article className="install-card"><div className="install-card-top"><span>Release archives</span><span>macOS · Linux · Windows</span></div><h3>Download an archive</h3><a className="release-link" href="https://github.com/prsuyal/why-diff/releases/latest" target="_blank" rel="noreferrer">GitHub Releases <span aria-hidden="true">↗</span></a><p>Put both why-diff and why-diff-hook on your PATH.</p></article>
+            <article className="install-card install-featured"><div className="install-card-top"><span>macOS · Linux</span></div><h3>Homebrew</h3><Command command={brew} compact /><p>To update later, run <code>brew upgrade prsuyal/tap/why-diff</code>.</p></article>
+            <article className="install-card"><div className="install-card-top"><span>macOS · Linux</span></div><h3>Install script</h3><Command command={quick} compact /><p>Downloads the release archive and verifies its SHA-256 checksum.</p></article>
+            <article className="install-card"><div className="install-card-top"><span>macOS · Linux · Windows</span></div><h3>Prebuilt binaries</h3><a className="release-link" href="https://github.com/prsuyal/why-diff/releases/latest" target="_blank" rel="noreferrer">GitHub Releases <span aria-hidden="true">↗</span></a><p>Extract both commands and add them to your PATH.</p></article>
           </div>
           <div className="activate-box">
-            <div><span className="eyebrow">After installing</span><h3>Turn on capture.</h3><p>why-diff records sessions while you work in Codex.</p></div>
-            <div className="activate-commands"><div><span>Every Git repository</span><Command command="why-diff init --global" compact /></div><div><span>Only this repository</span><Command command="why-diff init" compact /></div><p>Review and trust the hooks in Codex before your next session. <Link href="/docs">Setup details</Link></p></div>
+            <div><span className="eyebrow">After installing</span><h3>Enable the Codex hooks</h3></div>
+            <div className="activate-commands"><div><span>All Git repositories</span><Command command="why-diff init --global" compact /></div><div><span>This repository</span><Command command="why-diff init" compact /></div><p>Review and trust the hooks in Codex, then start a new session. <Link href="/docs">Setup instructions</Link></p></div>
           </div>
         </div>
       </section>
