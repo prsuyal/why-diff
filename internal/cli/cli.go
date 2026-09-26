@@ -760,7 +760,7 @@ func newInitCommand(environment Environment) *cobra.Command {
 		},
 	}
 	command.Flags().BoolVar(&global, "global", false, "configure user-level hooks for all Git repositories")
-	command.Flags().StringArrayVar(&agents, "agent", nil, "agent to configure (repeatable): codex, claude, cursor, gemini, copilot")
+	command.Flags().StringArrayVar(&agents, "agent", nil, "agent to configure (other hosts experimental; repeatable): codex, claude, cursor, gemini, copilot")
 	return command
 }
 

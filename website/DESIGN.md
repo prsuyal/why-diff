@@ -25,7 +25,7 @@ The presentation reference is [General Translation](https://generaltranslation.c
 
 `fixtures/record.sh` creates a local repository and sends scripted Codex hook events through the real capture binary. Run `sh website/fixtures/record.sh > website/fixtures/why-output.txt` from the repository root to refresh the captured CLI output. The integrated terminal renders that file directly. The editor diff and copy must agree with it.
 
-Do not call the walkthrough a live Codex recording. Do not imply that a passed test proves the policy edit was required. The logo strip names hook adapters present in source after CI passes their contract tests. The docs say the published release predates the four new adapters and that live host checks remain. Do not describe the strip as live-verified compatibility. Keep the terminal output identical to the generated fixture, including its evidence IDs. Explain the limits in docs instead of adding repeated disclaimers to each command result.
+Do not call the walkthrough a live Codex recording. Do not imply that a passed test proves the policy edit was required. The logo strip names hook adapters included in v0.2.0; the four newer adapters are experimental, and only Codex has been checked in a live host session. Keep the terminal output identical to the generated fixture, including its evidence IDs. Explain the limits in docs instead of adding repeated disclaimers to each command result.
 
 ## Implementation and review
 

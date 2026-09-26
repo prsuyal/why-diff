@@ -80,6 +80,6 @@ setup, review and trust the user hooks. Then start a fresh session.
 After it edits code, run `why-diff sessions` and
 `why-diff why path/to/file.go:42`.
 
-Source builds also contain [additional agent hook adapters](agent-adapters.md)
-with `why-diff init --agent NAME`. They have local contract tests and still
-need live host checks before release claims.
+The v0.2.0 archives also contain [experimental agent hook adapters](agent-adapters.md)
+for Claude Code, Cursor, Gemini CLI, and GitHub Copilot CLI. Configure one with
+`why-diff init --agent NAME`. Codex is the only agent verified in a live session.

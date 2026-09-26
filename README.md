@@ -13,7 +13,7 @@ brew install prsuyal/tap/why-diff
 ```
 
 For Windows or a manual install, download a prebuilt archive from the
-[v0.1.0 release](https://github.com/prsuyal/why-diff/releases/tag/v0.1.0).
+[latest release](https://github.com/prsuyal/why-diff/releases/latest).
 The [install guide](docs/install.md) covers checksums, supported platforms,
 and PATH setup. Both `why-diff` and `why-diff-hook` must be on `PATH`.
 
@@ -90,9 +90,11 @@ preserved, and running the command again is safe.
 why-diff writes hooks to `.codex/hooks.json`. Trust the project in Codex, then
 review and trust its hooks with `/hooks` before starting a fresh session.
 
-Source builds also include `why-diff init --agent claude|cursor|gemini|copilot`
-and matching `--global` setup. These adapters have local hook and query tests;
-live sessions of those hosts are still needed before release claims. See
+The v0.2.0 release also includes experimental hooks for Claude Code, Cursor,
+Gemini CLI, and GitHub Copilot CLI. Configure one with `why-diff init --agent NAME`
+(`claude`, `cursor`, `gemini`, or `copilot`) and add `--global` for user-level
+setup. These adapters passed local hook and query tests; Codex is the only
+agent verified in a live session. See
 [the adapter setup notes](docs/agent-adapters.md).
 
 Verify the setup before opening the agent:

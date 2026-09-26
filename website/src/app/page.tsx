@@ -44,7 +44,7 @@ export default function Home() {
                 ))}
               </div>
             </div>
-            <p>Codex works with the released version. To try the other agents, build why-diff from source.</p>
+            <p>Codex is verified end to end; the other integrations in v0.2.0 are experimental.</p>
           </div>
         </div>
       </section>

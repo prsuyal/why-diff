@@ -31,7 +31,7 @@ cat <<EOF
 # typed: strict
 # frozen_string_literal: true
 
-# Installs why-diff and its Codex hook recorder.
+# Installs why-diff and its agent hook recorder.
 class WhyDiff < Formula
   desc "Explain AI-assisted code changes from captured evidence"
   homepage "https://github.com/prsuyal/why-diff"
