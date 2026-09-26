@@ -31,9 +31,11 @@ export function SiteFooter() {
   return (
     <footer className="site-footer">
       <div className="site-shell footer-inner">
-        <Link className="brand" href="/"><Mark /><span>why-diff</span></Link>
-        <span>MIT licensed</span>
-        <div><Link href="/docs">Docs</Link><a href="https://github.com/prsuyal/why-diff" target="_blank" rel="noreferrer">GitHub ↗</a></div>
+        <div className="footer-identity">
+          <Link className="brand" href="/"><Mark /><span>why-diff</span></Link>
+          <span>Free and open source · MIT</span>
+        </div>
+        <nav className="footer-links" aria-label="Footer navigation"><Link href="/docs">Docs</Link><a href="https://github.com/prsuyal/why-diff" target="_blank" rel="noreferrer">GitHub ↗</a></nav>
       </div>
     </footer>
   );
