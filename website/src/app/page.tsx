@@ -23,6 +23,14 @@ const commonCommands = [
   { command: "doctor", use: "Check hook setup and report capture problems." },
 ];
 
+function Platforms({ windows = false }: { windows?: boolean }) {
+  return <div className="platform-icons" aria-label={windows ? "macOS, Linux, and Windows" : "macOS and Linux"} role="img">
+    <span className="platform-icon platform-apple" title="macOS" />
+    <span className="platform-icon platform-linux" title="Linux" />
+    {windows && <span className="platform-icon platform-windows" title="Windows" />}
+  </div>;
+}
+
 export default function Home() {
   const demoOutput = readFileSync(join(process.cwd(), "fixtures/why-output.txt"), "utf8");
   return (
@@ -99,9 +107,9 @@ export default function Home() {
         <div className="site-shell">
           <div className="install-heading"><h2>Install why-diff</h2></div>
           <div className="install-grid">
-            <article className="install-card install-featured"><div className="install-card-top"><span>macOS · Linux</span></div><h3>Homebrew</h3><Command command={brew} compact /><p>To update later, run <code>brew upgrade prsuyal/tap/why-diff</code>.</p></article>
-            <article className="install-card"><div className="install-card-top"><span>macOS · Linux</span></div><h3>Quick install script</h3><Command command={quick} compact /><p>Downloads the release archive and verifies its SHA-256 checksum.</p></article>
-            <article className="install-card"><div className="install-card-top"><span>macOS · Linux · Windows</span></div><h3>Prebuilt binaries</h3><a className="release-link" href="https://github.com/prsuyal/why-diff/releases/latest" target="_blank" rel="noreferrer">GitHub Releases <span aria-hidden="true">↗</span></a><p>Extract both commands and add them to your PATH.</p></article>
+            <article className="install-card install-featured"><div className="install-card-top"><Platforms /></div><h3>Homebrew</h3><Command command={brew} compact /><p>To update later, run <code>brew upgrade prsuyal/tap/why-diff</code>.</p></article>
+            <article className="install-card"><div className="install-card-top"><Platforms /></div><h3>Quick install script</h3><Command command={quick} compact /><p>Downloads the release archive and verifies its SHA-256 checksum.</p></article>
+            <article className="install-card"><div className="install-card-top"><Platforms windows /></div><h3>Prebuilt binaries</h3><a className="release-link" href="https://github.com/prsuyal/why-diff/releases/latest" target="_blank" rel="noreferrer">GitHub Releases <span aria-hidden="true">↗</span></a><p>Extract both commands and add them to your PATH.</p></article>
           </div>
           <div className="activate-box">
             <div><span className="eyebrow">After installing</span><h3>Enable the Codex hooks</h3></div>

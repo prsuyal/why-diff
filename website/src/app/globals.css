@@ -132,11 +132,11 @@ a { color: inherit; text-decoration: none; }
 .command { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 58px; padding: 7px 8px 7px 18px; background: #151515; border: 1px solid var(--line-strong); border-radius: 5px; box-shadow: none; }
 .command code { overflow-x: auto; white-space: nowrap; min-width: 0; color: #f0f0f0; font: 13px/1.5 var(--font-geist-mono), monospace; scrollbar-width: thin; }
 .command-prompt { color: var(--site-accent); margin-right: 5px; }
-.command button { flex: none; min-width: 60px; padding: 9px 11px; background: #282828; border: 1px solid #414141; border-radius: 3px; color: #ededed; font-size: 11px; font-weight: 550; transition: background .2s; }
+.command button { flex: none; width: 40px; height: 40px; display: grid; place-items: center; padding: 0; background: #282828; border: 1px solid #414141; border-radius: 3px; color: #ededed; transition: background .2s; }
 .command button:hover { background: #363636; }
 .command-compact { min-height: 51px; padding-left: 12px; background: #111; box-shadow: none; }
 .command-compact code { font-size: 11px; }
-.command-compact button { min-width: 52px; padding: 7px 9px; }
+.command-compact button { width: 36px; height: 36px; }
 
 .demo-section { padding-top: 120px; }
 .section-intro { margin: 0 0 48px; font-size: clamp(34px, 4.2vw, 54px); line-height: 1.09; letter-spacing: -.06em; font-weight: 560; }
@@ -161,6 +161,11 @@ a { color: inherit; text-decoration: none; }
 .install-card { min-width: 0; display: flex; flex-direction: column; padding: 23px; background: #181818; border: 1px solid var(--line); border-radius: 5px; }
 .install-featured { grid-row: span 2; border-color: #777; background: #202020; }
 .install-card-top { display: flex; justify-content: space-between; gap: 12px; color: var(--dim); font: 11px var(--font-geist-mono), monospace; }
+.platform-icons { display: flex; align-items: center; gap: 12px; }
+.platform-icon { display: block; width: 17px; height: 17px; background: currentColor; -webkit-mask: var(--platform-icon) center / contain no-repeat; mask: var(--platform-icon) center / contain no-repeat; }
+.platform-apple { --platform-icon: url('/platforms/apple.svg'); }
+.platform-linux { --platform-icon: url('/platforms/linux.svg'); }
+.platform-windows { --platform-icon: url('/platforms/windows.svg'); }
 .install-card h3 { font-size: 23px; letter-spacing: -.045em; font-weight: 550; margin: 25px 0 20px; }
 .install-featured h3 { margin-top: 75px; font-size: 36px; }
 .install-card p { color: var(--text-muted); font-size: 12px; line-height: 1.5; margin: auto 0 0; padding-top: 20px; }

@@ -1,5 +1,6 @@
 "use client";
 
+import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 
 export function Command({ command, compact = false }: { command: string; compact?: boolean }) {
@@ -18,8 +19,8 @@ export function Command({ command, compact = false }: { command: string; compact
   return (
     <div className={`command ${compact ? "command-compact" : ""}`}>
       <code><span className="command-prompt">$</span> {command}</code>
-      <button type="button" onClick={copy} aria-label={copied ? "Copied command" : `Copy ${command}`}>
-        {copied ? "Copied" : "Copy"}
+      <button type="button" onClick={copy} aria-label={copied ? "Copied command" : `Copy ${command}`} title={copied ? "Copied" : "Copy command"}>
+        {copied ? <Check aria-hidden="true" size={16} /> : <Copy aria-hidden="true" size={16} />}
       </button>
     </div>
   );
