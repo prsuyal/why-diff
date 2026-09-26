@@ -15,7 +15,7 @@ const agents = [
   { name: "Copilot CLI", icon: "/agents/copilot.svg" },
 ];
 const commonCommands = [
-  { command: "init [--global]", use: "Add Codex hooks for this repository or all Git repositories." },
+  { command: "init [ --global]", use: "Add Codex hooks for this repository or all Git repositories." },
   { command: "sessions", use: "List captured sessions." },
   { command: "show [session]", use: "Read a session's prompts, tool calls, and results." },
   { command: "diff [session]", use: "See file changes captured during a session." },
@@ -29,12 +29,12 @@ export default function Home() {
     <main>
       <section className="hero site-shell">
         <div className="hero-content">
-          <h1>Why did that line change?</h1>
-          <p className="hero-description">When Codex changes a file or line you didn&apos;t expect, why-diff shows the request it was working on, the tool call during which the edit appeared, and the patch.</p>
+          <h1>Why did that change???</h1>
+          <p className="hero-description">When your coding agent inevitably makes a change you didn&apos;t expect or ask for, why-diff shows the request it was working on, the tool call during which the edit appeared, and the patch. </p>
           <div className="hero-command"><span className="hero-command-label">Install with Homebrew</span><Command command={brew} /></div>
           <div className="hero-actions"><Link href="/docs">Docs</Link><a href="#install">Other install options</a></div>
           <div className="hero-agents" aria-label="Coding agents with why-diff hooks">
-            <div className="hero-agents-heading"><span>Coding agents</span><Link href="/docs#agents">Integration details</Link></div>
+            <div className="hero-agents-heading"><span>Use your agent of choice</span><Link href="/docs#agents">Integration details</Link></div>
             <div className="agent-marquee">
               <div className="agent-track">
                 {[0, 1, 2, 3].map((copy) => (
@@ -77,7 +77,7 @@ export default function Home() {
             </div>
           </article>
           <article className="flow-panel">
-            <h3>Look up a changed file or line</h3>
+            <h3>Look up a changed file or even a specific line</h3>
             <div className="evidence-table">
               <div><span>REQUEST</span><strong>Revoke existing sessions</strong></div>
               <div><span>TOOL</span><strong>render-session-policy.sh</strong></div>
@@ -100,12 +100,12 @@ export default function Home() {
           <div className="install-heading"><h2>Install why-diff</h2></div>
           <div className="install-grid">
             <article className="install-card install-featured"><div className="install-card-top"><span>macOS · Linux</span></div><h3>Homebrew</h3><Command command={brew} compact /><p>To update later, run <code>brew upgrade prsuyal/tap/why-diff</code>.</p></article>
-            <article className="install-card"><div className="install-card-top"><span>macOS · Linux</span></div><h3>Install script</h3><Command command={quick} compact /><p>Downloads the release archive and verifies its SHA-256 checksum.</p></article>
+            <article className="install-card"><div className="install-card-top"><span>macOS · Linux</span></div><h3>Quick install script</h3><Command command={quick} compact /><p>Downloads the release archive and verifies its SHA-256 checksum.</p></article>
             <article className="install-card"><div className="install-card-top"><span>macOS · Linux · Windows</span></div><h3>Prebuilt binaries</h3><a className="release-link" href="https://github.com/prsuyal/why-diff/releases/latest" target="_blank" rel="noreferrer">GitHub Releases <span aria-hidden="true">↗</span></a><p>Extract both commands and add them to your PATH.</p></article>
           </div>
           <div className="activate-box">
             <div><span className="eyebrow">After installing</span><h3>Enable the Codex hooks</h3></div>
-            <div className="activate-commands"><div><span>All Git repositories</span><Command command="why-diff init --global" compact /></div><div><span>This repository</span><Command command="why-diff init" compact /></div><p>Review and trust the hooks in Codex, then start a new session. <Link href="/docs">Setup instructions</Link></p></div>
+            <div className="activate-commands"><div><span>All Git repositories</span><Command command="why-diff init --global" compact /></div><div><span>A specific repository</span><Command command="why-diff init" compact /></div><p>Review and trust the hooks in Codex, then start a new session. <Link href="/docs">Setup instructions</Link></p></div>
           </div>
         </div>
       </section>
