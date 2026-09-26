@@ -45,15 +45,6 @@
 .evidence-table strong { min-width: 0; color: #e9e9e9; font: 11px/1.45 var(--font-geist-mono), monospace; overflow-wrap: anywhere; }
 .evidence-table > div:nth-child(3) strong { color: #fff; }
 
-.closing { overflow: hidden; border-top: 1px solid var(--line); background: #0d0d0d; }
-.closing-inner { min-height: 350px; display: flex; align-items: center; }
-.closing-copy { padding: 75px 0; }
-.closing-copy h2 { max-width: 550px; margin: 19px 0 15px; font-size: clamp(39px, 4vw, 58px); font-weight: 560; letter-spacing: -.06em; line-height: 1.07; }
-.closing-copy p { margin: 0 0 29px; color: var(--text-muted); font-size: 15px; line-height: 1.6; }
-.closing-copy .command { width: min(100%, 500px); }
-.closing-copy > a { display: inline-block; margin-top: 21px; color: var(--text-muted); font-size: 13px; }
-.closing-copy > a:hover { color: var(--text); }
-
 @keyframes flow-pulse { from { left: 0; } to { left: calc(100% - 18px); } }
 @keyframes checkpoint-pulse { from { left: 13%; } to { left: 87%; } }
 @keyframes agent-scroll { to { transform: translateX(-50%); } }
@@ -79,7 +70,6 @@
   .flow-node small { font-size: 8px; }
   .flow-connector { min-width: 0; }
   .flow-connector span { top: 12px; font-size: 7px; }
-  .closing-copy { padding: 85px 0; }
 }
 @media (max-width: 420px) {
   .flow-connector span { display: none; }

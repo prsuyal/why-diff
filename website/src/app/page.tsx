@@ -115,22 +115,6 @@ export default function Home() {
           </div>
         </div>
       </section>
-
-      <section className="questions site-shell">
-        <div className="feature-heading"><span className="eyebrow">A few details</span><h2>Before you install.</h2></div>
-        <div className="question-list">
-          <div><h3>Do I need to commit first?</h3><p>No. why-diff records changes while Codex works, including edits it later undoes.</p></div>
-          <div><h3>Where does the data go?</h3><p>Into the Git repository on your machine. Capture and normal queries do not call a model. The optional <code>explain</code> command sends a bounded evidence packet to OpenAI.</p></div>
-          <div><h3>Does it commit my work?</h3><p>No. It stores checkpoints in Git without staging or committing your changes.</p></div>
-          <div><h3>What do I need?</h3><p>A Git repository, Git 2.42 or newer, and Codex. <Link href="/docs">See the setup guide</Link></p></div>
-        </div>
-      </section>
-
-      <section className="closing">
-        <div className="site-shell closing-inner">
-          <div className="closing-copy"><span className="eyebrow">GET STARTED</span><h2>Install why-diff.</h2><p>Get the CLI, turn on capture, and use it with your next diff.</p><Command command={brew} /><Link href="/docs">Setup docs</Link></div>
-        </div>
-      </section>
     </main>
   );
 }
