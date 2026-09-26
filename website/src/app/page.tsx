@@ -50,10 +50,7 @@ export default function Home() {
       </section>
 
       <section className="demo-section site-shell" id="how">
-        <div className="section-intro">
-          <div><span className="eyebrow">Example</span><h2>The fix worked. The policy also changed.</h2></div>
-          <p>A password reset fix updates session validation. The policy generator also disables audit events and lengthens refresh tokens. Here&apos;s how to find that tool call from your editor.</p>
-        </div>
+        <h2 className="section-intro">Reviewing an agent&apos;s changes</h2>
         <Demo output={demoOutput} />
       </section>
 

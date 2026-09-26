@@ -5,21 +5,9 @@ import { Files, GitBranch, Search, TerminalSquare } from "lucide-react";
 
 const command = "why-diff why deploy/session-policy.yaml:3";
 const steps = [
-  {
-    number: "01",
-    title: "A security setting moved too.",
-    body: "The session revocation test passes after the fix. The generated policy also disables password reset audit events and lengthens refresh tokens.",
-  },
-  {
-    number: "02",
-    title: "Ask about the line.",
-    body: "Run why-diff on the audit setting. You can query any file or line in the captured diff.",
-  },
-  {
-    number: "03",
-    title: "Read what was recorded.",
-    body: "The answer points to the policy generator and shows its patch. The test passed, but that does not explain or justify the audit change.",
-  },
+  { number: "01", title: "The diff" },
+  { number: "02", title: "The command" },
+  { number: "03", title: "The result" },
 ] as const;
 const diffLines = [
   { number: "1", text: "password_reset:", className: "" },
@@ -61,7 +49,6 @@ export function Demo({ output }: { output: string }) {
             <div className="investigation-step-inner">
               <span className="investigation-count">{item.number} / 03</span>
               <h3>{item.title}</h3>
-              <p>{item.body}</p>
             </div>
           </article>
         ))}
@@ -105,7 +92,6 @@ export function Demo({ output }: { output: string }) {
         <article className={`mobile-investigation-step ${step === index ? "is-current" : ""}`} data-investigation-step={index} key={item.number}>
           <span className="investigation-count">{item.number} / 03</span>
           <h3>{item.title}</h3>
-          <p>{item.body}</p>
           {index === 0 && <div className="mobile-diff"><div className="mobile-panel-title">deploy/session-policy.yaml</div><div className="mobile-diff-lines">{diffLines.map(({ number, text, className }, lineIndex) => <div className={`mobile-diff-line ${className}`} key={lineIndex}><span>{number}</span><code>{text}</code></div>)}</div></div>}
           {index === 1 && <div className="mobile-terminal"><div className="mobile-panel-title">TERMINAL <span>zsh</span></div><div className="mobile-terminal-body"><span className="terminal-location">~/demo %</span><code>{command}</code></div></div>}
           {index === 2 && <div className="mobile-terminal"><div className="mobile-panel-title">TERMINAL <span>zsh</span></div><div className="mobile-terminal-body"><div className="mobile-terminal-command"><span className="terminal-location">~/demo %</span><code>{command}</code></div><pre className="mobile-terminal-output">{output.split("\n").map((line, lineIndex) => <span className={`terminal-line ${outputStyle(line)}`} key={lineIndex}>{line || "\u00a0"}</span>)}</pre></div></div>}

@@ -11,6 +11,7 @@ The page follows the user's actual workflow: notice an unexpected file in the ed
 - Near-black surfaces, white text, gray hierarchy, and thin borders follow the contrast of a dark shadcn/ui theme. Restrained green and red identify additions and removals; the rest of the page stays neutral.
 - The editor is a generic VS Code/Cursor-style mockup of a normal developer workflow. It is not a why-diff graphical app. The integrated terminal shows the real CLI command and the complete recorded output from the local fixture.
 - Scrolling moves from diff to command to result. The editor is a visual aid; it has no fake clickable product controls.
+- Let the diff, command, and recorded output explain the walkthrough. Use one plain section heading and short step labels; do not repeat the same scenario in paragraphs beside the demo.
 - Keep the product UI still long enough to read. Motion supports a change of focus; it does not continuously obscure the answer.
 - Desktop uses a sticky editor while the three chapters change focus. At 900px wide, on short screens, and with reduced motion, show three stacked panels: the diff, the command, and the complete CLI output. These panels keep the story readable without a pinned editor or nested terminal scrolling.
 - The hero holds the question, install command, and agent logo carousel in one section. The capture flow, checkpoint timeline, and evidence table visualize facts in the demo trace. They are diagrams, not a second why-diff UI. The home page ends with install and capture setup.
