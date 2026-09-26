@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/prsuyal/why-diff/internal/capture/agents"
 	"github.com/prsuyal/why-diff/internal/capture/claude"
 	"github.com/prsuyal/why-diff/internal/capture/codex"
 	"github.com/prsuyal/why-diff/internal/checkpoint"
@@ -38,6 +39,18 @@ func Codex(ctx context.Context, raw []byte, options CodexOptions) (event.Event, 
 
 func Claude(ctx context.Context, raw []byte, options ClaudeOptions) (event.Event, error) {
 	return capture(ctx, raw, options, claude.Adapter{})
+}
+
+func Cursor(ctx context.Context, raw []byte, options Options) (event.Event, error) {
+	return capture(ctx, raw, options, agents.Adapter{Provider: "cursor"})
+}
+
+func Gemini(ctx context.Context, raw []byte, options Options) (event.Event, error) {
+	return capture(ctx, raw, options, agents.Adapter{Provider: "gemini"})
+}
+
+func Copilot(ctx context.Context, raw []byte, options Options) (event.Event, error) {
+	return capture(ctx, raw, options, agents.Adapter{Provider: "copilot"})
 }
 
 func capture(ctx context.Context, raw []byte, options Options, normalizer adapter) (event.Event, error) {

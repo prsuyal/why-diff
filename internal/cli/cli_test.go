@@ -257,7 +257,7 @@ func TestSessionsShowAndWhyCommands(t *testing.T) {
 	}{
 		{args: []string{"sessions"}, want: []string{"session-cli", "WARNINGS", "Fix auth timeout"}},
 		{args: []string{"show"}, want: []string{"Session: session-cli", "tool started", "[checkpoint]", "warning: missing_tool_name —"}},
-		{args: []string{"why", "auth.go:3"}, want: []string{"Prompt:  Fix auth timeout", "Tool:    apply_patch", "return 30", "Code entity:", "function Timeout", "Validation:", "failed before", "passed afterward"}},
+		{args: []string{"why", "auth.go:3"}, want: []string{"auth.go:3 changed while apply_patch — change timeout ran.", "Request: Fix auth timeout", "Patch:", "return 30", "Code entity:", "function Timeout", "Tests: `go test ./...` failed before and passed afterward", "Evidence IDs:"}},
 		{args: []string{"lineage", "auth.go:3"}, want: []string{"Entity: function Timeout", "Versions: 2", "modified", "qualified_name", "Confidence describes"}},
 		{args: []string{"diff"}, want: []string{"Files: auth.go", "return 30"}},
 		{args: []string{"claims"}, want: []string{"resolving a test failure", "go test ./...", "Files: auth.go", "does not prove"}},
@@ -281,6 +281,10 @@ func TestSessionsShowAndWhyCommands(t *testing.T) {
 				t.Errorf("Run(%v) output missing %q:\n%s", test.args, want, stdout.String())
 			}
 		}
+	}
+	whyOutput := runCLI(t, root, "why", "auth.go:3")
+	if !strings.HasPrefix(whyOutput, "auth.go:3 changed while") || strings.Index(whyOutput, "Patch:") > strings.Index(whyOutput, "Evidence IDs:") {
+		t.Fatalf("why output does not lead with the answer and patch:\n%s", whyOutput)
 	}
 
 	ingestCLIEvent(t, root, `{"session_id":"session-alt","turn_id":"turn-2","cwd":%q,"hook_event_name":"UserPromptSubmit","prompt":"Try a separate cache"}`)
@@ -383,7 +387,7 @@ func TestEndToEndPreservesDirtyBaselineRevertsDeletionValidationAndArchiveFallba
 	}
 
 	whyConfig := runCLI(t, root, "why", "config.json", "--session", "edge-session")
-	for _, want := range []string{"Increase the timeout", "generate config.json", `-{"timeout":10}`, `+{"timeout":30}`, "Validation:"} {
+	for _, want := range []string{"Increase the timeout", "generate config.json", `-{"timeout":10}`, `+{"timeout":30}`, "Tests:"} {
 		if !strings.Contains(whyConfig, want) {
 			t.Errorf("why config output missing %q:\n%s", want, whyConfig)
 		}

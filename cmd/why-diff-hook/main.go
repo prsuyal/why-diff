@@ -8,5 +8,5 @@ import (
 )
 
 func main() {
-	os.Exit(hookcli.Run(context.Background(), os.Args[1:], os.Stdin, os.Stderr))
+	os.Exit(hookcli.RunWithOutput(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }

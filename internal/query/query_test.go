@@ -83,6 +83,33 @@ func TestWhyConnectsPromptToolAndCheckpointDiff(t *testing.T) {
 	}
 }
 
+func TestIdenticalOverlappingToolsAreNotAttributedWithoutProviderIDs(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	git(t, root, "init", "--quiet")
+	writeFile(t, filepath.Join(root, "config.json"), "{\"timeout\":5}\n")
+	for _, name := range []string{"BeforeTool", "BeforeTool", "AfterTool", "AfterTool"} {
+		if name == "AfterTool" {
+			writeFile(t, filepath.Join(root, "config.json"), "{\"timeout\":30}\n")
+		}
+		raw := fmt.Sprintf(`{"session_id":"overlap","cwd":%q,"hook_event_name":%q,"tool_name":"run_shell_command","tool_input":{"command":"generate"},"tool_response":{"exit_code":0}}`, root, name)
+		if _, err := ingest.Gemini(context.Background(), []byte(raw), ingest.Options{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service, err := query.New(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, changes, err := service.Changes(context.Background(), "overlap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 0 {
+		t.Fatalf("ambiguous overlapping calls attributed: %+v", changes)
+	}
+}
+
 func TestLineageTracksRenameAndMoveAcrossCheckpoints(t *testing.T) {
 	t.Parallel()
 

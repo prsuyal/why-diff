@@ -118,6 +118,74 @@ func TestGlobalSetupIsIdempotentAndPreservesOtherSettings(t *testing.T) {
 	}
 }
 
+func TestNewProviderGlobalAndLocalHooksCanBeRemoved(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COPILOT_HOME", t.TempDir())
+	providers := []initialize.Provider{initialize.ProviderCursor, initialize.ProviderGemini, initialize.ProviderCopilot}
+	root := newGitRepository(t)
+	if _, err := initialize.RunProviders(context.Background(), root, providers); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := initialize.RunGlobalProviders(providers); err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range providers {
+		if _, _, valid, err := initialize.InspectHook(context.Background(), root, provider); err != nil || !valid {
+			t.Fatalf("local %s: valid=%v, %v", provider, valid, err)
+		}
+		if _, configured, err := initialize.GlobalHookConfigured(provider); err != nil || !configured {
+			t.Fatalf("global %s: configured=%v, %v", provider, configured, err)
+		}
+	}
+	if _, err := initialize.Disable(context.Background(), root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := initialize.DisableGlobal(); err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range providers {
+		if _, _, valid, err := initialize.InspectHook(context.Background(), root, provider); err != nil || valid {
+			t.Fatalf("disabled local %s: valid=%v, %v", provider, valid, err)
+		}
+		if _, configured, err := initialize.GlobalHookConfigured(provider); err != nil || configured {
+			t.Fatalf("disabled global %s: configured=%v, %v", provider, configured, err)
+		}
+	}
+}
+
+func TestCopilotLocalSettingsPreserveExistingHooks(t *testing.T) {
+	t.Parallel()
+	root := newGitRepository(t)
+	path := filepath.Join(root, ".github", "copilot", "settings.local.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"custom":"keep","hooks":{"preToolUse":[{"type":"command","command":"existing-check"}]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := initialize.RunProviders(context.Background(), root, []initialize.Provider{initialize.ProviderCopilot}); err != nil {
+		t.Fatal(err)
+	}
+	var settings map[string]any
+	decodeFile(t, path, &settings)
+	if settings["custom"] != "keep" || settings["version"] != nil {
+		t.Fatalf("changed unrelated Copilot settings: %+v", settings)
+	}
+	if entries := settings["hooks"].(map[string]any)["preToolUse"].([]any); len(entries) != 2 {
+		t.Fatalf("existing hook lost: %+v", entries)
+	}
+	if _, err := initialize.Disable(context.Background(), root); err != nil {
+		t.Fatal(err)
+	}
+	decodeFile(t, path, &settings)
+	if settings["custom"] != "keep" {
+		t.Fatalf("disable removed unrelated settings: %+v", settings)
+	}
+	if entries := settings["hooks"].(map[string]any)["preToolUse"].([]any); len(entries) != 1 {
+		t.Fatalf("disable did not preserve original hook: %+v", entries)
+	}
+}
+
 func TestRunProvidersMergesClaudeSettingsAndDisablePreservesThem(t *testing.T) {
 	t.Parallel()
 

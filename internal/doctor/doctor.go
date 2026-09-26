@@ -47,6 +47,7 @@ func (r Report) Ready() bool {
 
 type Options struct {
 	LookupExecutable func(string) (string, error)
+	Provider         initialize.Provider
 }
 
 func Run(ctx context.Context, cwd string, options Options) Report {
@@ -79,11 +80,15 @@ func Run(ctx context.Context, cwd string, options Options) Report {
 		})
 	}
 
-	globalCodexPath, globalCodex, globalCodexErr := initialize.GlobalHookConfigured(initialize.ProviderCodex)
-	if globalCodexErr != nil {
-		report.Checks = append(report.Checks, Check{Name: "Global Codex hooks", Status: StatusError, Detail: globalCodexErr.Error()})
+	provider := options.Provider
+	if provider == "" {
+		provider = initialize.ProviderCodex
 	}
-	inspection, err := initialize.Inspect(ctx, cwd)
+	globalCodexPath, globalCodex, globalCodexErr := initialize.GlobalHookConfigured(provider)
+	if globalCodexErr != nil {
+		report.Checks = append(report.Checks, Check{Name: "Global " + string(provider) + " hooks", Status: StatusError, Detail: globalCodexErr.Error()})
+	}
+	hooksPath, markerValid, hooksValid, err := initialize.InspectHook(ctx, cwd, provider)
 	if err != nil {
 		report.Checks = append(report.Checks, Check{
 			Name:   "Project configuration",
@@ -91,8 +96,8 @@ func Run(ctx context.Context, cwd string, options Options) Report {
 			Detail: err.Error(),
 		})
 	} else {
-		marker := Check{Name: "Project marker", Status: StatusOK, Detail: inspection.MarkerPath}
-		if !inspection.MarkerValid {
+		marker := Check{Name: "Project marker", Status: StatusOK, Detail: filepath.Join(location.WorktreeRoot, ".why-diff.toml")}
+		if !markerValid {
 			if globalCodex {
 				marker.Status = StatusWarning
 				marker.Detail = "not needed for global capture"
@@ -103,8 +108,12 @@ func Run(ctx context.Context, cwd string, options Options) Report {
 		}
 		report.Checks = append(report.Checks, marker)
 
-		hooks := Check{Name: "Codex hooks", Status: StatusOK, Detail: inspection.HooksPath}
-		if !inspection.HooksValid {
+		name := string(provider)
+		if provider == initialize.ProviderCodex {
+			name = "Codex"
+		}
+		hooks := Check{Name: name + " hooks", Status: StatusOK, Detail: hooksPath}
+		if !hooksValid {
 			if globalCodex {
 				hooks.Detail = globalCodexPath + " (global)"
 			} else {
@@ -114,10 +123,10 @@ func Run(ctx context.Context, cwd string, options Options) Report {
 		}
 		report.Checks = append(report.Checks, hooks)
 
-		if !inspection.HooksValid && !globalCodex {
+		if !hooksValid && !globalCodex {
 			report.Checks = append(report.Checks, Check{
 				Name: "Agent hooks", Status: StatusError,
-				Detail: "Codex capture is not configured; run `why-diff init`",
+				Detail: fmt.Sprintf("%s capture is not configured; run `why-diff init --agent %s`", provider, provider),
 			})
 		}
 	}

@@ -466,13 +466,19 @@ func newShowCommand(environment Environment) *cobra.Command {
 }
 
 func newDoctorCommand(environment Environment) *cobra.Command {
-	return &cobra.Command{
+	var agent string
+	command := &cobra.Command{
 		Use:   "doctor",
 		Short: "Diagnose repository capture and provenance health",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			provider, err := parseAgent(agent)
+			if err != nil {
+				return err
+			}
 			report := doctor.Run(command.Context(), environment.WorkingDirectory, doctor.Options{
 				LookupExecutable: environment.LookupExecutable,
+				Provider:         provider,
 			})
 			fmt.Fprintln(command.OutOrStdout(), "why-diff doctor")
 			for _, check := range report.Checks {
@@ -486,6 +492,8 @@ func newDoctorCommand(environment Environment) *cobra.Command {
 			return nil
 		},
 	}
+	command.Flags().StringVar(&agent, "agent", "codex", "agent to diagnose: codex, claude, cursor, gemini, copilot")
+	return command
 }
 
 func newDisableCommand(environment Environment) *cobra.Command {
@@ -516,8 +524,11 @@ func newDisableCommand(environment Environment) *cobra.Command {
 				return nil
 			}
 			fmt.Fprintf(command.OutOrStdout(), "Disabled why-diff capture in %s\n", result.RepositoryRoot)
-			if _, configured, err := initialize.GlobalHookConfigured(initialize.ProviderCodex); err == nil && configured {
-				fmt.Fprintln(command.OutOrStdout(), "Global capture is still active; run `why-diff disable --global` to turn it off.")
+			for _, provider := range []initialize.Provider{initialize.ProviderCodex, initialize.ProviderClaude, initialize.ProviderCursor, initialize.ProviderGemini, initialize.ProviderCopilot} {
+				if _, configured, err := initialize.GlobalHookConfigured(provider); err == nil && configured {
+					fmt.Fprintln(command.OutOrStdout(), "Global capture is still active; run `why-diff disable --global` to turn it off.")
+					break
+				}
 			}
 			fmt.Fprintln(command.OutOrStdout(), "Captured provenance was retained under .git/why-diff and refs/why-diff/sessions/*.")
 			return nil
@@ -531,7 +542,7 @@ func newWhyCommand(environment Environment) *cobra.Command {
 	var sessionSelector string
 	command := &cobra.Command{
 		Use:   "why <file[:line]>",
-		Short: "Explain which captured tool call changed a file or line",
+		Short: "Show the captured tool interval when a file or line changed",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			service, err := query.New(command.Context(), environment.WorkingDirectory)
@@ -547,22 +558,16 @@ func newWhyCommand(environment Environment) *cobra.Command {
 			if attribution.Line > 0 {
 				target = fmt.Sprintf("%s:%d", target, attribution.Line)
 			}
-			fmt.Fprintf(command.OutOrStdout(), "Target:  %s\n", target)
-			fmt.Fprintf(command.OutOrStdout(), "Session: %s\n", attribution.SessionID)
-			if attribution.Prompt != "" {
-				fmt.Fprintf(command.OutOrStdout(), "Prompt:  %s\n", attribution.Prompt)
-			}
-			fmt.Fprintf(command.OutOrStdout(), "Tool:    %s", attribution.Tool)
+			tool := attribution.Tool
 			if attribution.ToolSummary != "" {
-				fmt.Fprintf(command.OutOrStdout(), " — %s", attribution.ToolSummary)
+				tool += " — " + attribution.ToolSummary
 			}
-			fmt.Fprintln(command.OutOrStdout())
-			fmt.Fprintln(command.OutOrStdout(), "\nEvidence:")
-			fmt.Fprintf(command.OutOrStdout(), "- Tool started:   %s\n", attribution.StartedEventID)
-			fmt.Fprintf(command.OutOrStdout(), "- Tool completed: %s\n", attribution.CompletedEventID)
-			fmt.Fprintf(command.OutOrStdout(), "- Before tree:    %s\n", attribution.BeforeTree)
-			fmt.Fprintf(command.OutOrStdout(), "- After tree:     %s\n", attribution.AfterTree)
-			fmt.Fprintln(command.OutOrStdout(), "\nInference: the target changed between checkpoints immediately before and after this tool call. This is strong temporal evidence, not proof of exclusive causation.")
+			fmt.Fprintf(command.OutOrStdout(), "%s changed while %s ran.\n", target, tool)
+			if attribution.Prompt != "" {
+				fmt.Fprintf(command.OutOrStdout(), "Request: %s\n", attribution.Prompt)
+			}
+			fmt.Fprintln(command.OutOrStdout(), "\nPatch:")
+			fmt.Fprintln(command.OutOrStdout(), attribution.Patch)
 			if attribution.Entity != nil {
 				fmt.Fprintln(command.OutOrStdout(), "\nCode entity:")
 				fmt.Fprintf(command.OutOrStdout(), "- %s %s (%s:%d-%d)\n", attribution.Entity.Kind,
@@ -573,13 +578,18 @@ func newWhyCommand(environment Environment) *cobra.Command {
 				}
 			}
 			if validation := attribution.Validation; validation != nil {
-				fmt.Fprintln(command.OutOrStdout(), "\nValidation:")
-				fmt.Fprintf(command.OutOrStdout(), "- `%s` failed before the change: %s (%s)\n", validation.Command, validation.FailedEventID, validation.FailedBasis)
-				fmt.Fprintf(command.OutOrStdout(), "- The same command passed afterward: %s (%s)\n", validation.PassedEventID, validation.PassedBasis)
-				fmt.Fprintln(command.OutOrStdout(), "- This is consistent with the captured changes resolving the failure; it is not proof that every changed line was necessary.")
+				fmt.Fprintf(command.OutOrStdout(), "\nTests: `%s` failed before and passed afterward.\n", validation.Command)
 			}
-			fmt.Fprintln(command.OutOrStdout(), "\nPatch:")
-			fmt.Fprintln(command.OutOrStdout(), attribution.Patch)
+			fmt.Fprintf(command.OutOrStdout(), "\nSession: %s\n", attribution.SessionID)
+			fmt.Fprintln(command.OutOrStdout(), "Evidence IDs:")
+			fmt.Fprintf(command.OutOrStdout(), "- Tool started:   %s\n", attribution.StartedEventID)
+			fmt.Fprintf(command.OutOrStdout(), "- Tool completed: %s\n", attribution.CompletedEventID)
+			fmt.Fprintf(command.OutOrStdout(), "- Before tree:    %s\n", attribution.BeforeTree)
+			fmt.Fprintf(command.OutOrStdout(), "- After tree:     %s\n", attribution.AfterTree)
+			if validation := attribution.Validation; validation != nil {
+				fmt.Fprintf(command.OutOrStdout(), "- Test failed:    %s (%s)\n", validation.FailedEventID, validation.FailedBasis)
+				fmt.Fprintf(command.OutOrStdout(), "- Test passed:    %s (%s)\n", validation.PassedEventID, validation.PassedBasis)
+			}
 			return nil
 		},
 	}
@@ -690,12 +700,23 @@ func shortID(value string) string {
 
 func newInitCommand(environment Environment) *cobra.Command {
 	var global bool
+	var agents []string
 	command := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize why-diff capture for an AI coding agent",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			providers := []initialize.Provider{initialize.ProviderCodex}
+			if len(agents) > 0 {
+				providers = nil
+				for _, agent := range agents {
+					provider, err := parseAgent(agent)
+					if err != nil {
+						return err
+					}
+					providers = append(providers, provider)
+				}
+			}
 			if global {
 				result, err := initialize.RunGlobalProviders(providers)
 				if err != nil {
@@ -729,13 +750,27 @@ func newInitCommand(environment Environment) *cobra.Command {
 					fmt.Fprintf(command.OutOrStdout(), "Updated %s (%s)\n", hook.Path, hook.Provider)
 				}
 			}
-			fmt.Fprintln(command.OutOrStdout(), "Trust this project in Codex, then review and trust the generated project hooks before starting the agent.")
-			fmt.Fprintln(command.OutOrStdout(), "Run `why-diff doctor`, then start a fresh agent session to verify capture.")
+			if len(providers) == 1 && providers[0] == initialize.ProviderCodex {
+				fmt.Fprintln(command.OutOrStdout(), "Trust this project in Codex, then review and trust the generated project hooks before starting the agent.")
+			} else {
+				fmt.Fprintln(command.OutOrStdout(), "Review and trust the generated project hooks before starting the agent.")
+			}
+			fmt.Fprintf(command.OutOrStdout(), "Run `why-diff doctor --agent %s`, then start a fresh agent session to verify capture.\n", providers[0])
 			return nil
 		},
 	}
 	command.Flags().BoolVar(&global, "global", false, "configure user-level hooks for all Git repositories")
+	command.Flags().StringArrayVar(&agents, "agent", nil, "agent to configure (repeatable): codex, claude, cursor, gemini, copilot")
 	return command
+}
+
+func parseAgent(name string) (initialize.Provider, error) {
+	switch initialize.Provider(name) {
+	case initialize.ProviderCodex, initialize.ProviderClaude, initialize.ProviderCursor, initialize.ProviderGemini, initialize.ProviderCopilot:
+		return initialize.Provider(name), nil
+	default:
+		return "", fmt.Errorf("unsupported agent %q (use codex, claude, cursor, gemini, or copilot)", name)
+	}
 }
 
 func newInternalCommand() *cobra.Command {

@@ -1,6 +1,8 @@
 # why-diff
 
-**Git tells you what changed. why-diff keeps the receipts for how it changed.**
+The [product direction](docs/product-direction.md) explains the evidence model, the agent investigation loop, and proposed improvements. The [website design plan](website/DESIGN.md) covers the public demo.
+
+**A line in the diff makes you ask why. why-diff shows when it appeared and what Codex was doing.**
 
 Ask a coding agent to fix one bug and it may inspect twenty files, run a code
 generator that rewrites an unrelated config file, change two functions, undo
@@ -13,30 +15,30 @@ why-diff records that missing context while the work happens. It is a local CLI
 for Codex that connects prompts, tool calls, command results,
 and intermediate repository states to the code changes left behind.
 
+For example, a password reset fix also rewrote the deployed session policy.
+Here is a shortened excerpt from the local demo fixture:
+
 ```console
-$ why-diff why internal/auth/session.go:42
-Target:  internal/auth/session.go:42
-Session: 01K...
-Prompt:  Fix the authentication timeout bug
-Tool:    apply_patch — update session timeout handling
+$ why-diff why deploy/session-policy.yaml:3
+deploy/session-policy.yaml:3 changed while Bash — sh scripts/render-session-policy.sh ran.
+Request: Revoke existing sessions after a password reset
 
-Evidence:
-- Tool started:   01K...
-- Tool completed: 01K...
-- Before tree:    a8c...
-- After tree:     f31...
+Patch:
+ password_reset:
+-  revoke_existing_sessions: false
+-  audit_event: enabled
++  revoke_existing_sessions: true
++  audit_event: disabled
+ refresh_tokens:
+-  ttl: 30m
++  ttl: 30d
 
-Inference: the target changed between checkpoints immediately before and
-after this tool call. This is strong temporal evidence, not proof of exclusive
-causation.
-
-Validation:
-- `go test ./...` failed before the change
-- The same command passed afterward
+Tests: `go test ./...` failed before and passed afterward.
 ```
 
-The answer is backed by captured event IDs and Git object IDs. It is not a
-story generated from the final diff after the work is already over.
+That tells you where to look next: the policy generator. It does not tell you
+why audit events were disabled. The full output includes the captured
+event IDs and Git tree IDs so you can verify the timeline.
 
 ## 1. Install why-diff
 
@@ -128,6 +130,11 @@ preserved, and running the command again is safe.
 why-diff writes hooks to `.codex/hooks.json`. Trust the project in Codex, then
 review and trust its hooks with `/hooks` before starting a fresh session.
 
+Source builds also include `why-diff init --agent claude|cursor|gemini|copilot`
+and matching `--global` setup. These adapters have local hook and query tests;
+live sessions of those hosts are still needed before release claims. See
+[the adapter setup notes](docs/agent-adapters.md).
+
 Verify the setup before opening the agent:
 
 ```sh
@@ -176,7 +183,7 @@ snapshots are marked with `[checkpoint]`.
 
 | Command                                        | What it does                                                                                                                                                |
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `why-diff init [--global]`                   | Adds repository or user-level Codex hooks.                                                                                                                |
+| `why-diff init [--global] [--agent NAME]`    | Adds repository or user-level hooks. Defaults to Codex; `--agent` can be repeated.                                                                         |
 | `why-diff doctor`                               | Checks the Git repository, project marker, hooks, executable on `PATH`, stored sessions, and capture warnings. Exits non-zero when the setup is not usable. |
 | `why-diff disable [--global]`                   | Removes repository or user-level why-diff hooks. It preserves unrelated agent settings and all previously captured provenance.                                  |
 

@@ -21,9 +21,14 @@ const (
 type Provider string
 
 const (
-	ProviderCodex  Provider = "codex"
-	ProviderClaude Provider = "claude"
+	ProviderCodex   Provider = "codex"
+	ProviderClaude  Provider = "claude"
+	ProviderCursor  Provider = "cursor"
+	ProviderGemini  Provider = "gemini"
+	ProviderCopilot Provider = "copilot"
 )
+
+var allProviders = []Provider{ProviderCodex, ProviderClaude, ProviderCursor, ProviderGemini, ProviderCopilot}
 
 var codexHookEvents = []string{
 	"SessionStart",
@@ -42,13 +47,15 @@ var codexHookEvents = []string{
 var claudeHookEvents = append(append([]string(nil), codexHookEvents...), "PostToolUseFailure")
 
 type providerConfig struct {
-	provider     Provider
-	directory    string
-	filename     string
-	command      string
-	events       []string
-	description  string
-	inlineConfig bool
+	provider       Provider
+	directory      string
+	filename       string
+	command        string
+	events         []string
+	description    string
+	inlineConfig   bool
+	flatConfig     bool
+	inlineSettings bool
 }
 
 var providerConfigs = map[Provider]providerConfig{
@@ -60,6 +67,21 @@ var providerConfigs = map[Provider]providerConfig{
 	ProviderClaude: {
 		provider: ProviderClaude, directory: ".claude", filename: "settings.json",
 		command: "why-diff-hook claude", events: claudeHookEvents,
+	},
+	ProviderCursor: {
+		provider: ProviderCursor, directory: ".cursor", filename: "hooks.json",
+		command: "why-diff-hook cursor", flatConfig: true,
+		events: []string{"sessionStart", "sessionEnd", "beforeSubmitPrompt", "preToolUse", "postToolUse", "postToolUseFailure"},
+	},
+	ProviderGemini: {
+		provider: ProviderGemini, directory: ".gemini", filename: "settings.json",
+		command: "why-diff-hook gemini",
+		events:  []string{"SessionStart", "SessionEnd", "BeforeAgent", "BeforeTool", "AfterTool"},
+	},
+	ProviderCopilot: {
+		provider: ProviderCopilot, directory: ".github/copilot", filename: "settings.local.json",
+		command: "why-diff-hook copilot", flatConfig: true, inlineSettings: true,
+		events: []string{"sessionStart", "sessionEnd", "userPromptSubmitted", "preToolUse", "postToolUse", "postToolUseFailure"},
 	},
 }
 
@@ -96,6 +118,38 @@ type Inspection struct {
 	HooksValid       bool
 	ClaudeHooksPath  string
 	ClaudeHooksValid bool
+}
+
+// InspectHook checks one provider without requiring other agents' settings to be valid.
+func InspectHook(ctx context.Context, cwd string, provider Provider) (string, bool, bool, error) {
+	config, ok := providerConfigs[provider]
+	if !ok {
+		return "", false, false, fmt.Errorf("unsupported capture provider %q", provider)
+	}
+	location, err := repository.Locate(ctx, cwd)
+	if err != nil {
+		return "", false, false, err
+	}
+	markerPath := filepath.Join(location.WorktreeRoot, ".why-diff.toml")
+	marker, err := os.ReadFile(markerPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", false, false, err
+	}
+	markerValid := err == nil && hasSupportedSchemaVersion(marker)
+	path := filepath.Join(location.WorktreeRoot, config.directory, config.filename)
+	if err := validateConfigurationDirectory(filepath.Dir(path), config); err != nil {
+		return path, markerValid, false, err
+	}
+	if config.inlineConfig {
+		inlinePath := filepath.Join(filepath.Dir(path), "config.toml")
+		if inline, err := containsInlineHooks(inlinePath); err != nil {
+			return path, markerValid, false, err
+		} else if inline {
+			return path, markerValid, false, fmt.Errorf("%s defines inline Codex hooks instead of the why-diff hooks file", inlinePath)
+		}
+	}
+	_, _, changed, err := prepareHooksFile(path, config)
+	return path, markerValid, !changed && err == nil, err
 }
 
 // Inspect checks the configuration written by Run without modifying it.
@@ -172,6 +226,7 @@ func GlobalHookConfigured(provider Provider) (string, bool, error) {
 		return "", false, fmt.Errorf("unsupported capture provider %q", provider)
 	}
 	config.command += " --global"
+	config.inlineSettings = false
 	path, err := globalHookPath(config)
 	if err != nil {
 		return "", false, err
@@ -198,13 +253,22 @@ func globalHookPath(config providerConfig) (string, error) {
 		root = os.Getenv("CODEX_HOME")
 	case ProviderClaude:
 		root = os.Getenv("CLAUDE_CONFIG_DIR")
+	case ProviderCopilot:
+		root = os.Getenv("COPILOT_HOME")
 	}
 	if root == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("find home directory: %w", err)
 		}
-		root = filepath.Join(home, config.directory)
+		if config.provider == ProviderCopilot {
+			root = filepath.Join(home, ".copilot")
+		} else {
+			root = filepath.Join(home, config.directory)
+		}
+	}
+	if config.provider == ProviderCopilot {
+		return filepath.Join(root, "hooks", "why-diff.json"), nil
 	}
 	return filepath.Join(root, config.filename), nil
 }
@@ -230,6 +294,7 @@ func RunGlobalProviders(providers []Provider) (Result, error) {
 		}
 		seen[provider] = true
 		config.command += " --global"
+		config.inlineSettings = false
 		path, err := globalHookPath(config)
 		if err != nil {
 			return Result{}, err
@@ -273,9 +338,10 @@ func RunGlobalProviders(providers []Provider) (Result, error) {
 // DisableGlobal removes only why-diff's user-level handlers.
 func DisableGlobal() (DisableResult, error) {
 	var result DisableResult
-	for _, provider := range []Provider{ProviderCodex, ProviderClaude} {
+	for _, provider := range allProviders {
 		config := providerConfigs[provider]
 		config.command += " --global"
+		config.inlineSettings = false
 		path, err := globalHookPath(config)
 		if err != nil {
 			return DisableResult{}, err
@@ -402,7 +468,7 @@ func Disable(ctx context.Context, cwd string) (DisableResult, error) {
 		return DisableResult{}, fmt.Errorf("inspect why-diff project marker: %w", markerErr)
 	}
 
-	for _, provider := range []Provider{ProviderCodex, ProviderClaude} {
+	for _, provider := range allProviders {
 		config := providerConfigs[provider]
 		path := filepath.Join(location.WorktreeRoot, config.directory, config.filename)
 		if result.HooksPath == "" {
@@ -476,9 +542,21 @@ func prepareDisabledHooksFile(path string, config providerConfig) ([]byte, os.Fi
 		}
 		kept := make([]json.RawMessage, 0, len(groups))
 		for _, groupRaw := range groups {
+			if config.flatConfig {
+				matched, matchErr := flatHandlerMatches(groupRaw, eventName, commandForEvent(config, eventName))
+				if matchErr != nil {
+					return nil, 0, false, false, matchErr
+				}
+				if matched {
+					changed = true
+					continue
+				}
+				kept = append(kept, groupRaw)
+				continue
+			}
 			group := groupRaw
 			drop := false
-			group, groupChanged, drop, err := removeWhydiffFromGroup(group, eventName, config.command)
+			group, groupChanged, drop, err := removeWhydiffFromGroup(group, eventName, commandForEvent(config, eventName))
 			if err != nil {
 				return nil, 0, false, false, err
 			}
@@ -557,6 +635,13 @@ func generatedHooksFileIsEmpty(top map[string]json.RawMessage, hooks map[string]
 		return false
 	}
 	if config.description == "" {
+		if config.flatConfig {
+			if config.inlineSettings {
+				return len(top) == 1
+			}
+			var version int
+			return len(top) == 2 && json.Unmarshal(top["version"], &version) == nil && version == 1
+		}
 		return len(top) == 1
 	}
 	if len(top) != 2 {
@@ -573,6 +658,9 @@ func prepareHooksFile(path string, config providerConfig) ([]byte, os.FileMode, 
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		top := map[string]json.RawMessage{"hooks": mustJSON(map[string]json.RawMessage{})}
+		if config.flatConfig && !config.inlineSettings {
+			top["version"] = mustJSON(1)
+		}
 		if config.description != "" {
 			top["description"] = mustJSON(config.description)
 		}
@@ -616,6 +704,16 @@ func validateConfigurationDirectory(path string, config providerConfig) error {
 }
 
 func mergeHooks(top map[string]json.RawMessage, config providerConfig) ([]byte, bool, error) {
+	if config.flatConfig && !config.inlineSettings {
+		if raw, ok := top["version"]; ok {
+			var version int
+			if json.Unmarshal(raw, &version) != nil || version != 1 {
+				return nil, false, fmt.Errorf("existing %s hooks must use version 1", config.provider)
+			}
+		} else {
+			top["version"] = mustJSON(1)
+		}
+	}
 	hooks := map[string]json.RawMessage{}
 	if raw, ok := top["hooks"]; ok {
 		if err := json.Unmarshal(raw, &hooks); err != nil || hooks == nil {
@@ -634,7 +732,12 @@ func mergeHooks(top map[string]json.RawMessage, config providerConfig) ([]byte, 
 		}
 		found := false
 		for _, group := range groups {
-			hasHandler, err := groupContainsWhydiff(group, eventName, config.command)
+			var hasHandler bool
+			if config.flatConfig {
+				hasHandler, err = flatHandlerMatches(group, eventName, commandForEvent(config, eventName))
+			} else {
+				hasHandler, err = groupContainsWhydiff(group, eventName, commandForEvent(config, eventName))
+			}
 			if err != nil {
 				return nil, false, err
 			}
@@ -645,13 +748,23 @@ func mergeHooks(top map[string]json.RawMessage, config providerConfig) ([]byte, 
 		if found {
 			continue
 		}
-		groups = append(groups, mustJSON(map[string]any{
-			"hooks": []map[string]any{{
-				"type":    "command",
-				"command": config.command,
-				"timeout": hookTimeout(eventName),
-			}},
-		}))
+		if config.flatConfig {
+			entry := map[string]any{"command": commandForEvent(config, eventName)}
+			if config.provider == ProviderCopilot {
+				entry["type"] = "command"
+			} else {
+				entry["timeout"] = 5
+			}
+			groups = append(groups, mustJSON(entry))
+		} else {
+			timeout := hookTimeout(eventName)
+			if config.provider == ProviderGemini {
+				timeout = 5000
+			}
+			groups = append(groups, mustJSON(map[string]any{
+				"hooks": []map[string]any{{"type": "command", "command": commandForEvent(config, eventName), "timeout": timeout}},
+			}))
+		}
 		hooks[eventName] = mustJSON(groups)
 		changed = true
 	}
@@ -666,6 +779,29 @@ func mergeHooks(top map[string]json.RawMessage, config providerConfig) ([]byte, 
 	}
 	encoded = append(encoded, '\n')
 	return encoded, true, nil
+}
+
+func commandForEvent(config providerConfig, eventName string) string {
+	if config.provider != ProviderCopilot && config.provider != ProviderCursor {
+		return config.command
+	}
+	base := strings.TrimSuffix(config.command, " --global")
+	if base != config.command {
+		return base + " " + eventName + " --global"
+	}
+	return base + " " + eventName
+}
+
+func flatHandlerMatches(raw json.RawMessage, eventName, command string) (bool, error) {
+	var handler map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &handler); err != nil || handler == nil {
+		return false, fmt.Errorf("existing %s hook must be a JSON object", eventName)
+	}
+	var existing string
+	if field, ok := handler["command"]; ok && json.Unmarshal(field, &existing) != nil {
+		return false, fmt.Errorf("existing %s hook command must be a string", eventName)
+	}
+	return existing == command, nil
 }
 
 func hookTimeout(eventName string) int {

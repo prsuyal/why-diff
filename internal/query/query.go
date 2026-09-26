@@ -639,15 +639,31 @@ func validationClaims(session store.Session, changes []ToolChange) []reason.Vali
 
 func (s *Service) deriveChangesForSession(ctx context.Context, session store.Session) ([]ToolChange, error) {
 	started := map[string]event.Event{}
+	pending := map[string]int{}
+	ambiguous := map[string]bool{}
 	var changes []ToolChange
 	for _, captured := range session.Events {
 		switch captured.Kind {
 		case event.KindToolStarted:
 			if captured.Context.ToolCallID != "" && captured.Checkpoint != nil {
+				pending[captured.Context.ToolCallID]++
+				if pending[captured.Context.ToolCallID] > 1 {
+					ambiguous[captured.Context.ToolCallID] = true
+				}
 				started[captured.Context.ToolCallID] = captured
 			}
 		case event.KindToolCompleted:
+			if ambiguous[captured.Context.ToolCallID] {
+				pending[captured.Context.ToolCallID]--
+				if pending[captured.Context.ToolCallID] <= 0 {
+					delete(pending, captured.Context.ToolCallID)
+					delete(ambiguous, captured.Context.ToolCallID)
+					delete(started, captured.Context.ToolCallID)
+				}
+				continue
+			}
 			before, ok := started[captured.Context.ToolCallID]
+			delete(pending, captured.Context.ToolCallID)
 			delete(started, captured.Context.ToolCallID)
 			if !ok || before.Checkpoint == nil || captured.Checkpoint == nil {
 				continue

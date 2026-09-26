@@ -82,6 +82,22 @@ func TestRunRequiresCodexHooks(t *testing.T) {
 	}
 }
 
+func TestRunChecksSelectedAgent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	git(t, root, "init", "--quiet")
+	if _, err := initialize.RunProviders(context.Background(), root, []initialize.Provider{initialize.ProviderCursor}); err != nil {
+		t.Fatal(err)
+	}
+	report := doctor.Run(context.Background(), root, doctor.Options{
+		Provider:         initialize.ProviderCursor,
+		LookupExecutable: func(string) (string, error) { return "/usr/local/bin/why-diff", nil },
+	})
+	if !report.Ready() || !hasCheck(report, "cursor hooks", doctor.StatusOK) {
+		t.Fatalf("cursor doctor: %+v", report)
+	}
+}
+
 func TestRunAcceptsGlobalHooksWithoutProjectMarker(t *testing.T) {
 	isolateGlobalHooks(t)
 	root := t.TempDir()
