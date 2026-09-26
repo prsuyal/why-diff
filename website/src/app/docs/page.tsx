@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Command } from "@/components/command";
 
 export const metadata: Metadata = {
-  title: "Docs — why-diff",
+  title: "why-diff",
   description: "Install why-diff, capture a Codex session, and trace a changed file or line.",
 };
 

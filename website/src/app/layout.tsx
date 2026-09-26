@@ -18,7 +18,7 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "why-diff — Where did that change come from?",
+  title: "why-diff",
   description:
     "See what Codex was doing when it changed a file or line.",
   openGraph: {

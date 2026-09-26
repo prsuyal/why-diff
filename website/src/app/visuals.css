@@ -22,13 +22,15 @@
 .flow-node strong { color: #f5f5f5; font-size: 20px; font-weight: 550; letter-spacing: -.05em; }
 .flow-node-main { border-color: #f0f0f0; background: #f0f0f0; }
 .flow-node-main small, .flow-node-main strong { color: #111; }
-.flow-connector { position: relative; flex: 1; min-width: 48px; height: 1px; background: #565656; }
-.flow-connector::after { content: ""; position: absolute; top: 50%; right: 0; width: 6px; height: 6px; border-right: 1px solid #aaa; border-bottom: 1px solid #aaa; transform: translateY(-50%) rotate(-45deg); }
+.flow-connector { position: relative; flex: 1; min-width: 48px; height: 1px; overflow: hidden; background: #565656; }
+.flow-connector::after { content: ""; position: absolute; top: 0; left: 0; width: 18px; height: 1px; opacity: 0; background: #eee; animation: flow-trace 7.8s linear infinite; }
+.flow-connector:nth-of-type(4)::after { animation-delay: 2.6s; }
 
-.checkpoint-visual { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 10px; margin-top: auto; padding-top: 72px; }
-.checkpoint-visual::before { content: ""; position: absolute; top: 41px; left: 13%; right: 13%; height: 1px; background: #565656; }
+.checkpoint-visual { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 10px; margin-top: auto; padding-top: 44px; }
 .checkpoint-card { position: relative; min-height: 112px; display: flex; flex-direction: column; justify-content: space-between; gap: 13px; padding: 15px; border: 1px solid #3f3f3f; background: #181818; }
-.checkpoint-card::before { content: ""; position: absolute; top: -36px; left: 50%; width: 1px; height: 35px; background: #565656; }
+.checkpoint-card::before { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: #ddd; opacity: 0; transform: scaleX(0); transform-origin: left; animation: checkpoint-trace 7.8s linear infinite; }
+.checkpoint-card:nth-child(2)::before { animation-delay: 2.6s; }
+.checkpoint-card:nth-child(3)::before { animation-delay: 5.2s; }
 .checkpoint-card span { color: #858585; font: 9px var(--font-geist-mono), monospace; letter-spacing: .1em; }
 .checkpoint-card code { color: #e6e6e6; font: 11px/1.4 var(--font-geist-mono), monospace; overflow-wrap: anywhere; }
 .checkpoint-tool { border-color: #b8b8b8; background: #252525; }
@@ -42,6 +44,9 @@
 .evidence-table > div:nth-child(3) strong { color: #fff; }
 
 @keyframes agent-scroll { to { transform: translateX(-50%); } }
+@keyframes flow-trace { 0%, 3% { left: 0; opacity: 0; } 5% { opacity: 1; } 29% { left: calc(100% - 18px); opacity: 1; } 32%, 100% { left: calc(100% - 18px); opacity: 0; } }
+@keyframes flow-trace-vertical { 0%, 3% { top: 0; opacity: 0; } 5% { opacity: 1; } 29% { top: calc(100% - 12px); opacity: 1; } 32%, 100% { top: calc(100% - 12px); opacity: 0; } }
+@keyframes checkpoint-trace { 0%, 3% { opacity: 0; transform: scaleX(0); } 5% { opacity: 1; } 29% { opacity: 1; transform: scaleX(1); } 32%, 100% { opacity: 0; transform: scaleX(1); } }
 
 @media (max-width: 980px) {
   .flow-panel-wide { grid-template-columns: 1fr; gap: 12px; }
@@ -65,11 +70,10 @@
   .flow-node strong { font-size: 18px; }
   .flow-node small { font-size: 9px; }
   .flow-connector { width: 1px; height: 30px; min-width: 0; flex: none; margin-left: 26px; }
-  .flow-connector::after { top: auto; right: auto; bottom: 0; left: 50%; transform: translateX(-50%) rotate(45deg); }
+  .flow-connector::after { width: 1px; height: 12px; animation-name: flow-trace-vertical; }
 }
 @media (max-width: 420px) {
   .checkpoint-visual { grid-template-columns: 1fr; gap: 12px; margin-top: 28px; padding-top: 0; }
-  .checkpoint-visual::before, .checkpoint-card::before { display: none; }
   .checkpoint-card { min-height: 70px; padding: 10px; }
   .checkpoint-card code { font-size: 11px; }
   .evidence-table > div { grid-template-columns: 68px minmax(0, 1fr); padding-inline: 11px; gap: 9px; }
@@ -79,4 +83,5 @@
   .agent-track { width: auto; animation: none; }
   .agent-list { width: 100%; min-width: 0; flex-wrap: wrap; row-gap: 18px; }
   .agent-list[aria-hidden="true"] { display: none; }
+  .flow-connector::after, .checkpoint-card::before { display: none; }
 }
